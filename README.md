@@ -2,7 +2,7 @@
 
 Личный будильник для Android 8+ и QR-станция для ноутбука. Без подписок, аккаунтов, рекламы и backend. [План и устройство проекта](docs/PLAN.md).
 
-**Сайт:** https://wake-up-clock-01a1e033.vercel.app
+**Сайт:** [wake-up-clock.vercel.app](https://wake-up-clock.vercel.app)
 
 **[Скачать APK 0.1.0](https://github.com/monxchrxme/WakeUP-Clock/releases/download/v0.1.0/wake-up-clock-0.1.0-debug.apk)** (около 3 MB, debug-сборка).
 
@@ -70,7 +70,7 @@ cd web
 node --test tests/*.test.js
 ```
 
-Подключи в Vercel репозиторий **`monxchrxme/WakeUP-Clock`** и выбери:
+В Vercel используется проект **`wake-up-clock`**, подключённый к репозиторию **`monxchrxme/WakeUP-Clock`**. Настройки проекта:
 
 - Production Branch: **`main`**;
 - Root Directory: **`web`**;
@@ -79,7 +79,7 @@ node --test tests/*.test.js
 - Output Directory: **`public`**;
 - Install Command: **пусто** (override включён, внешних зависимостей у сайта нет).
 
-Конфигурация и заголовки уже в `web/vercel.json`. Привязка репозитория и завершение деплоя выполняются вручную в Vercel. APK не нужно загружать на Vercel: ссылка в справке ведёт к файлу в GitHub Releases. Если изменился домен сайта, повторно свяжи браузер и телефон.
+Конфигурация и заголовки уже в `web/vercel.json`. Первоначальная настройка и повторный деплой после изменения параметров выполняются в Vercel; последующие коммиты в `main` запускают деплой автоматически через GitHub-интеграцию. APK не нужно загружать на Vercel: ссылка в справке ведёт к файлу в GitHub Releases. Если изменился домен сайта, повторно свяжи браузер и телефон.
 
 ## Выпуск APK
 
