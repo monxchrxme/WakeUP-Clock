@@ -4,12 +4,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.media.RingtoneManager
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -30,8 +27,7 @@ class RingService : Service() {
     private var focus: AudioFocusRequest? = null
     private var beganElapsed = 0L
     private var focusPaused = false
-    private val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM)
-        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+    private val attributes = AlarmAudio.attributes
 
     private val pulse = object : Runnable {
         override fun run() {
@@ -103,23 +99,11 @@ class RingService : Service() {
 
     private fun play(session: RingSession) {
         releasePlayer()
-        val uris = listOfNotNull(
-            session.alarm.sound.takeIf { it.isNotEmpty() }?.let(Uri::parse),
-            RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM),
-            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
-            Uri.parse("android.resource://$packageName/${R.raw.fallback_alarm}"),
-        )
-        for (uri in uris) {
-            val candidate = MediaPlayer()
-            try {
-                candidate.setAudioAttributes(attributes)
-                candidate.setDataSource(this, uri)
-                candidate.isLooping = true
-                candidate.prepare()
-                candidate.start()
-                player = candidate
-                return
-            } catch (_: Exception) { candidate.release() }
+        runCatching { AlarmAudio.start(this, session.alarm.sound) }.onSuccess {
+            player = it.player
+            val changed = store.soundFallback() != it.usedFallback
+            store.setSoundFallback(it.usedFallback)
+            if (changed) sendBroadcast(Intent(STATE_CHANGED).setPackage(packageName))
         }
     }
 
@@ -139,6 +123,7 @@ class RingService : Service() {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         store.originalVolume()?.let { runCatching { audio.setStreamVolume(AudioManager.STREAM_ALARM, it, 0) } }
         store.forgetVolume()
+        store.setSoundFallback(false)
         if (store.activeSession() != null) AlarmScheduler.scheduleRecovery(this)
         super.onDestroy()
     }

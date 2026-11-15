@@ -55,6 +55,8 @@ class AlarmStore(context: Context) {
     fun originalVolume(): Int? = if (prefs.contains("originalVolume")) prefs.getInt("originalVolume", 0) else null
     fun rememberVolume(value: Int) { prefs.edit().putInt("originalVolume", value).commit() }
     fun forgetVolume() { prefs.edit().remove("originalVolume").commit() }
+    fun soundFallback() = prefs.getBoolean("soundFallback", false)
+    fun setSoundFallback(value: Boolean) { prefs.edit().putBoolean("soundFallback", value).apply() }
 
     private fun array(key: String): JSONArray = JSONArray(prefs.getString(key, "[]"))
 

@@ -5,6 +5,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AlarmJsonTest {
+    @Test fun newAlarmsStartAtFullVolume() { assertEquals(100, Alarm(1).volume) }
+    @Test fun savedCustomVolumeIsPreserved() {
+        val alarm = Alarm(15, volume = 35)
+        assertEquals(35, AlarmJson.decode(AlarmJson.encode(alarm)).volume)
+    }
     private fun legacy(persistence: String) = JSONObject("""{
         "id":12,"hour":7,"minute":15,"days":31,"enabled":true,"sound":"content://music/1",
         "volume":75,"persistence":"$persistence","dismissMode":"QR","scheduledAt":1794740400000

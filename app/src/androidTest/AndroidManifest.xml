@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider android:name="ru.wakeup.clock.TestAudioProvider"
+            android:authorities="ru.wakeup.clock.test.audio" android:exported="true" />
+    </application>
+</manifest>

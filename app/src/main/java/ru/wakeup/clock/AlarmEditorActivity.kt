@@ -9,7 +9,6 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.OpenableColumns
 import android.text.InputFilter
 import android.text.TextUtils
 import android.view.Gravity
@@ -18,6 +17,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.NumberPicker
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
@@ -26,6 +26,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.ViewModelProvider
 import org.json.JSONObject
 
 /** iPhone-style interaction: time wheels and compact grouped rows, with a persistent navigation bar. */
@@ -36,43 +37,68 @@ class AlarmEditorActivity : ComponentActivity() {
     private var scrollY = 0
     private lateinit var content: LinearLayout
     private var scroller: ScrollView? = null
+    private lateinit var soundImport: SoundImportModel
+    private var importDialog: AlertDialog? = null
 
     private val ringtonePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             @Suppress("DEPRECATION")
             val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
-            draft = draft.copy(sound = uri?.toString() ?: "", soundTitle = "")
-            render()
+            if (uri == null || RingtoneManager.isDefault(uri)) selectSound(SoundChoice("", ""))
+            else soundImport.import(this, uri)
         }
     }
     private val audioFilePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            // Keep access after reboot without asking for broad storage permissions.
-            val granted = runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }.isSuccess
-            if (!granted) toast("Этот источник не даёт постоянный доступ. Выбери файл из памяти телефона.")
-            else {
-                val name = runCatching {
-                    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-                        if (it.moveToFirst()) it.getString(0) else null
-                    }
-                }.getOrNull() ?: "Аудиофайл"
-                draft = draft.copy(sound = uri.toString(), soundTitle = name)
-                render()
-            }
-        }
+        if (uri != null) soundImport.import(this, uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        soundImport = ViewModelProvider(this)[SoundImportModel::class.java]
         val id = intent.getIntExtra("id", -1)
         val saved = AlarmStore(this).alarms().find { it.id == id }
         isExisting = saved != null
-        initial = saved ?: Alarm(id = id, dismissMode = if (StationStore(this).get() == null) DismissMode.BUTTON else DismissMode.QR)
+        initial = saved ?: SoundDefaults(this).newAlarm(id)
         draft = savedInstanceState?.getString("draft")?.let { AlarmJson.decode(JSONObject(it)) } ?: initial
         scrollY = savedInstanceState?.getInt("scrollY") ?: 0
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = cancel()
         })
+        render()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        soundImport.observe { state ->
+            if (state == SoundImportModel.State.Loading) {
+                if (importDialog == null) importDialog = AlertDialog.Builder(this)
+                    .setTitle("Подготовка мелодии").setMessage("Сохраняю и проверяю аудиофайл…")
+                    .setView(ProgressBar(this).apply { setPadding(dp(24), dp(12), dp(24), dp(24)) })
+                    .setCancelable(false).show()
+            } else {
+                importDialog?.dismiss(); importDialog = null
+                when (state) {
+                    is SoundImportModel.State.Ready -> { soundImport.consume(); selectSound(state.choice) }
+                    is SoundImportModel.State.Failed -> {
+                        soundImport.consume()
+                        AlertDialog.Builder(this).setTitle("Мелодия не выбрана").setMessage(state.message)
+                            .setPositiveButton("Понятно", null).show()
+                    }
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        soundImport.detach()
+        importDialog?.dismiss(); importDialog = null
+        super.onStop()
+    }
+
+    private fun selectSound(choice: SoundChoice) {
+        draft = draft.copy(sound = choice.uri, soundTitle = choice.title)
+        SoundDefaults(this).remember(choice)
         render()
     }
 
@@ -272,7 +298,7 @@ class AlarmEditorActivity : ComponentActivity() {
                     .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, draft.sound.takeIf { it.isNotBlank() }?.let(Uri::parse)
                         ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)))
                 1 -> audioFilePicker.launch(arrayOf("audio/*"))
-                else -> { draft = draft.copy(sound = "android.resource://$packageName/${R.raw.fallback_alarm}", soundTitle = "Встроенный сигнал"); render() }
+                else -> selectSound(SoundChoice("android.resource://$packageName/${R.raw.fallback_alarm}", "Встроенный сигнал"))
             }
         }.show()
     }
@@ -295,12 +321,14 @@ class AlarmEditorActivity : ComponentActivity() {
     }
 
     private fun save() {
+        if (soundImport.state == SoundImportModel.State.Loading) { toast("Дождись подготовки мелодии"); return }
         if (!permissionsReady()) { toast("Сначала настрой разрешения на главном экране"); return }
         if (draft.dismissMode == DismissMode.QR && StationStore(this).get() == null) { toast("Сначала свяжи телефон с браузером"); return }
         if (AlarmScheduler.schedule(this, draft.copy(enabled = true))) finish() else toast("Не удалось запланировать будильник")
     }
 
     private fun test() {
+        if (soundImport.state == SoundImportModel.State.Loading) { toast("Дождись подготовки мелодии"); return }
         if (!permissionsReady()) { toast("Сначала настрой разрешения на главном экране"); return }
         if (AlarmStore(this).sessions().isNotEmpty()) { toast("Уже есть активный или отложенный звонок"); return }
         AlarmStore(this).enqueue(draft, test = true)
@@ -309,6 +337,7 @@ class AlarmEditorActivity : ComponentActivity() {
     }
 
     private fun cancel() {
+        if (soundImport.state == SoundImportModel.State.Loading) { toast("Дождись подготовки мелодии"); return }
         if (draft == initial) finish()
         else AlertDialog.Builder(this).setTitle("Отменить изменения?").setPositiveButton("Не сохранять") { _, _ -> finish() }
             .setNegativeButton("Продолжить", null).show()

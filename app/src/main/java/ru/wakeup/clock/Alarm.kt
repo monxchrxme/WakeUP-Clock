@@ -14,7 +14,7 @@ data class Alarm(
     val days: Int = 0,
     val enabled: Boolean = true,
     val sound: String = "",
-    val volume: Int = 80,
+    val volume: Int = 100,
     val persistence: Persistence = Persistence.STRONG,
     val dismissMode: DismissMode = DismissMode.QR,
     val scheduledAt: Long = 0,
