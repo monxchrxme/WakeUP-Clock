@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f3ed">
+  <meta name="description" content="QR-станция для будильника «Пора вставать». Открой на ноутбуке и отсканируй код телефоном.">
+  <title>Пора вставать — утренняя станция</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/qrcodegen.js" defer></script>
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <a class="brand" href="/" aria-label="Пора вставать — главная"><span class="sun" aria-hidden="true">✳</span> пора вставать<span class="brand-dot">.</span></a>
+      <span class="header-note">Маленький шаг из кровати</span>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="heading">
+        <div class="eyebrow"><span class="status-dot"></span> УТРЕННЯЯ СТАНЦИЯ <span class="version">/ 01</span></div>
+        <h1 id="heading">Ты уже<br>почти <em>встал.</em></h1>
+        <p class="lead">Осталось дойти до ноутбука.<br>Наведи телефон на код — и начни день<br class="desktop-break"> с тишины.</p>
+        <div class="steps">
+          <div class="step"><span class="step-number">01</span><p>Открой сканер<br><strong>в приложении будильника</strong></p></div>
+          <div class="step"><span class="step-number">02</span><p>Наведи камеру<br><strong>на QR-код на странице</strong></p></div>
+        </div>
+        <p class="small-note">Звук остановится на телефоне.<br>Эта страница не получает результат сканирования.</p>
+      </section>
+
+      <section class="station" aria-label="Код отключения будильника">
+        <div class="station-top"><span class="mono">ТВОЯ ТОЧКА ПОДЪЁМА</span><span id="station-id" class="station-id">—</span></div>
+        <div id="welcome" class="welcome">
+          <div class="welcome-symbol" aria-hidden="true">↗</div>
+          <h2>Один раз настроить.<br>Каждое утро вставать.</h2>
+          <p>Создай станцию в этом браузере и свяжи её с приложением на телефоне.</p>
+          <button id="create" class="primary" type="button">Создать станцию <span aria-hidden="true">↗</span></button>
+        </div>
+        <div id="active" hidden>
+          <div class="qr-shell"><div id="qr" role="img" aria-label="Обновляемый QR-код для отключения будильника"></div></div>
+          <div class="qr-caption"><span class="status-dot"></span><span id="qr-status">Готовим свежий код…</span></div>
+          <div class="progress" aria-hidden="true"><div id="progress-fill"></div></div>
+          <div class="refresh-line"><span>Новый код каждые 30 секунд</span><span id="countdown" class="mono">—</span></div>
+        </div>
+        <div id="error" class="error" role="alert" hidden></div>
+        <div class="station-bottom"><span>Первое утро здесь?</span><button id="pair" class="text-button" type="button" disabled>Привязать телефон <span aria-hidden="true">↗</span></button></div>
+      </section>
+    </main>
+
+    <footer><span>Без аккаунтов. Без подписок. Просто встать.</span><button id="help" class="text-button" type="button">Как это работает <span aria-hidden="true">＋</span></button></footer>
+  </div>
+
+  <dialog id="pair-dialog" aria-labelledby="pair-title">
+    <div class="dialog-top"><span class="eyebrow">ОДНОРАЗОВАЯ НАСТРОЙКА</span><button class="close" data-close="pair-dialog" type="button" aria-label="Закрыть привязку">×</button></div>
+    <h2 id="pair-title">Свяжем два устройства.</h2>
+    <p>На телефоне открой «Пора вставать» → «Связать с браузером». Отсканируй этот код и подтверди привязку.</p>
+    <div class="pair-qr" id="pair-qr" role="img" aria-label="QR привязки этого браузера"></div>
+    <p class="secret-note">Этот код содержит ключ. Не сохраняй и не отправляй его. Для отключения будильника используется другой, обновляемый код.</p>
+    <button class="primary full" data-close="pair-dialog" type="button">Вернуться к утреннему коду</button>
+  </dialog>
+
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <div class="dialog-top"><span class="eyebrow">ПАРА ВАЖНЫХ ДЕТАЛЕЙ</span><button class="close" data-close="help-dialog" type="button" aria-label="Закрыть справку">×</button></div>
+    <h2 id="help-title">Ноутбук — повод подняться.</h2>
+    <p><a class="download-link" href="https://github.com/monxchrxme/WakeUP-Clock/releases/download/v0.1.0/wake-up-clock-0.1.0-debug.apk">Скачать приложение для Android 8+ · APK</a></p>
+    <p>Открой этот сайт на ноутбуке и один раз свяжи браузер с Android-приложением. В будильнике выбери отключение QR-кодом.</p>
+    <p>Утром открой страницу в том же браузере. Свежий код проверяется на телефоне, интернет приложению не нужен. Уже загруженная страница продолжает обновлять код без сети.</p>
+    <p>Включи автоматическую дату и время на обоих устройствах. Старый скриншот перестаёт подходить максимум через 45 секунд.</p>
+    <p>Ключ хранится только в этом браузере и на телефоне. Не используй приватный режим. После очистки данных браузера или смены адреса сайта привяжи его заново до следующего QR-будильника.</p>
+    <p class="secret-note">На телефоне проверь разрешения, автозапуск и ограничения батареи. Сначала проверь будильник с заблокированным экраном.</p>
+    <button class="primary full" data-close="help-dialog" type="button">Понятно</button>
+  </dialog>
+</body>
+</html>

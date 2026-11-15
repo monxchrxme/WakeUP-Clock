@@ -1,0 +1,16 @@
+.DS_Store
+.tools/
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.vercel/
+node_modules/
+*.iml
+.idea/
+*.keystore
+*.jks
+*.apk
+*.aab
+docs/screenshots/
+!gradle/wrapper/gradle-wrapper.jar
