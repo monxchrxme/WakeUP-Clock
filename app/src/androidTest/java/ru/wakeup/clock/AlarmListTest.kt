@@ -50,6 +50,14 @@ class AlarmListTest {
     }
     private fun select(time: String) { onView(withContentDescription("Выбрать будильник $time")).perform(scrollTo(), click()) }
     private fun row(time: String) = onView(withContentDescription("Будильник $time"))
+    private fun recreate() {
+        val monitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
+        instrumentation.runOnMainSync { activity!!.recreate() }
+        activity = instrumentation.waitForMonitorWithTimeout(monitor, 5000)
+        instrumentation.removeMonitor(monitor)
+        assertNotNull(activity)
+        instrumentation.waitForIdleSync()
+    }
     private fun screenshot(name: String) {
         instrumentation.waitForIdleSync(); SystemClock.sleep(600)
         val image = instrumentation.uiAutomation.takeScreenshot()
@@ -102,12 +110,7 @@ class AlarmListTest {
         launch()
         row("07:00").perform(scrollTo(), longClick())
         onView(withContentDescription("Выбрать будильник 07:00")).check(matches(isChecked()))
-        val monitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
-        instrumentation.runOnMainSync { activity!!.recreate() }
-        activity = instrumentation.waitForMonitorWithTimeout(monitor, 5000)
-        instrumentation.removeMonitor(monitor)
-        assertNotNull(activity)
-        instrumentation.waitForIdleSync()
+        recreate()
         onView(withContentDescription("Выбрать будильник 07:00")).check(matches(isChecked()))
         pressBack()
         onView(withText("Выбрать")).check(matches(isDisplayed()))
@@ -137,5 +140,39 @@ class AlarmListTest {
         assertEquals(session, store.activeSession())
         assertEquals(setOf(902, 903), fixtures.map { it.id }.toSet())
         store.removeSession(session.token)
+    }
+
+    @Test fun undoNoticeExpiresWithoutRestartingAfterRecreation() {
+        launch()
+        onView(withText("Выбрать")).perform(scrollTo(), click())
+        onView(withContentDescription("Выбрать все")).perform(click())
+        onView(withContentDescription("Удалить выбранные")).perform(click())
+        val deletedAt = SystemClock.elapsedRealtime()
+        onView(withText("Отменить")).check(matches(isDisplayed()))
+        SystemClock.sleep(2_500)
+        recreate()
+        onView(withText("Отменить")).check(matches(isDisplayed()))
+        SystemClock.sleep((deletedAt + 6_000 - SystemClock.elapsedRealtime()).coerceAtLeast(0))
+        instrumentation.waitForIdleSync()
+        onView(withText("Отменить")).check(matches(withEffectiveVisibility(Visibility.GONE)))
+        assertTrue(fixtures.isEmpty())
+        recreate()
+        onView(withText("Отменить")).check(matches(withEffectiveVisibility(Visibility.GONE)))
+    }
+
+    @Test fun nextDeletionGetsItsOwnUndoWindowAndRestoresOnlyItsBatch() {
+        launch()
+        onView(withText("Выбрать")).perform(scrollTo(), click())
+        select("07:00")
+        onView(withContentDescription("Удалить выбранные")).perform(click())
+        SystemClock.sleep(3_000)
+        onView(withText("Выбрать")).perform(scrollTo(), click())
+        select("08:00")
+        onView(withContentDescription("Удалить выбранные")).perform(click())
+        SystemClock.sleep(2_500)
+        instrumentation.waitForIdleSync()
+        onView(withText("Отменить")).check(matches(isDisplayed())).perform(click())
+        assertEquals(setOf(902, 903), fixtures.map { it.id }.toSet())
+        onView(withText("Отменить")).check(matches(withEffectiveVisibility(Visibility.GONE)))
     }
 }

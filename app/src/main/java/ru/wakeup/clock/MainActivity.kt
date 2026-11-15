@@ -8,12 +8,16 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.ActionMode
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.accessibility.AccessibilityManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -42,6 +46,9 @@ class MainActivity : ComponentActivity() {
     private var undoBar: LinearLayout? = null
     private var undoLabel: TextView? = null
     private var deletedAlarms: List<Alarm> = emptyList()
+    private var undoExpiresAt = 0L
+    private val undoHandler = Handler(Looper.getMainLooper())
+    private val hideUndo = Runnable { refreshUndoBar() }
     private val normalOnlyViews = mutableListOf<View>()
     private val selectionBack = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() { selectionMode?.finish() }
@@ -106,6 +113,7 @@ class MainActivity : ComponentActivity() {
         selecting = savedInstanceState?.getBoolean("selecting") ?: false
         savedInstanceState?.getIntArray("selectedIds")?.let { selectedIds.addAll(it.toList()) }
         deletedAlarms = savedInstanceState?.getStringArrayList("deletedAlarms")?.map { AlarmJson.decode(JSONObject(it)) }.orEmpty()
+        undoExpiresAt = savedInstanceState?.getLong("undoExpiresAt") ?: 0L
         onBackPressedDispatcher.addCallback(this, selectionBack)
         AlarmNotifications.channel(this)
     }
@@ -115,6 +123,7 @@ class MainActivity : ComponentActivity() {
         outState.putBoolean("selecting", selecting)
         outState.putIntArray("selectedIds", selectedIds.toIntArray())
         outState.putStringArrayList("deletedAlarms", ArrayList(deletedAlarms.map { AlarmJson.encode(it).toString() }))
+        outState.putLong("undoExpiresAt", undoExpiresAt)
         super.onSaveInstanceState(outState)
     }
 
@@ -124,6 +133,16 @@ class MainActivity : ComponentActivity() {
         if (lastReady == false && ready()) permissionsExpanded = false
         lastReady = ready()
         render()
+    }
+
+    override fun onStop() {
+        undoHandler.removeCallbacks(hideUndo)
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        undoHandler.removeCallbacks(hideUndo)
+        super.onDestroy()
     }
 
     private fun ready(): Boolean {
@@ -254,7 +273,14 @@ class MainActivity : ComponentActivity() {
 
     private fun deleteAlarms(ids: Set<Int>) {
         val deleted = AlarmBatchActions.delete(this, ids)
-        if (deleted.isNotEmpty()) deletedAlarms = deleted
+        if (deleted.isNotEmpty()) {
+            deletedAlarms = deleted
+            val timeout = if (Build.VERSION.SDK_INT >= 29)
+                getSystemService(AccessibilityManager::class.java).getRecommendedTimeoutMillis(5_000,
+                    AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS)
+            else 5_000
+            undoExpiresAt = SystemClock.elapsedRealtime() + timeout
+        }
         selectionMode?.finish()
         refreshAlarms()
         refreshUndoBar()
@@ -272,7 +298,7 @@ class MainActivity : ComponentActivity() {
             setPadding(Ui.dp(this@MainActivity, 12), Ui.dp(this@MainActivity, 14), Ui.dp(this@MainActivity, 6), Ui.dp(this@MainActivity, 14))
             setOnClickListener {
                 val unavailable = AlarmBatchActions.restore(this@MainActivity, deletedAlarms)
-                deletedAlarms = emptyList(); refreshAlarms(); refreshUndoBar()
+                deletedAlarms = emptyList(); undoExpiresAt = 0L; refreshAlarms(); refreshUndoBar()
                 if (unavailable > 0) toast("Часть будильников восстановлена выключенной. Разреши точные звонки.")
             }
         })
@@ -281,8 +307,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshUndoBar() {
+        undoHandler.removeCallbacks(hideUndo)
+        val remaining = undoExpiresAt - SystemClock.elapsedRealtime()
+        if (remaining <= 0L) { deletedAlarms = emptyList(); undoExpiresAt = 0L }
         undoBar?.visibility = if (deletedAlarms.isEmpty()) View.GONE else View.VISIBLE
         undoLabel?.text = if (deletedAlarms.size == 1) "Удалён будильник ${Ui.time(deletedAlarms.first())}" else "Удалено будильников: ${deletedAlarms.size}"
+        if (deletedAlarms.isNotEmpty()) undoHandler.postDelayed(hideUndo, remaining)
     }
 
     private fun canArm(mode: DismissMode): Boolean {
