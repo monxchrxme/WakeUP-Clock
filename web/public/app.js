@@ -21,14 +21,14 @@ function qrSvg(payload) {
   svg.setAttribute('shape-rendering', 'crispEdges');
   svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   const background = document.createElementNS(svg.namespaceURI, 'rect');
-  background.setAttribute('width', '100%'); background.setAttribute('height', '100%'); background.setAttribute('fill', '#ffffff');
+  background.setAttribute('width', '100%'); background.setAttribute('height', '100%'); background.setAttribute('fill', '#fbf1c7');
   svg.append(background);
   const path = document.createElementNS(svg.namespaceURI, 'path');
   let d = '';
   for (let y = 0; y < code.size; y++) for (let x = 0; x < code.size; x++) {
     if (code.getModule(x, y)) d += `M${x + border},${y + border}h1v1h-1z`;
   }
-  path.setAttribute('d', d); path.setAttribute('fill', '#162b22');
+  path.setAttribute('d', d); path.setAttribute('fill', '#282828');
   svg.append(path);
   return svg;
 }

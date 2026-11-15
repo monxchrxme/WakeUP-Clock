@@ -1,6 +1,7 @@
 package ru.wakeup.clock
 
 import android.app.KeyguardManager
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -21,7 +22,7 @@ class RingActivity : ComponentActivity() {
     private val scanner = registerForActivityResult(ScanContract()) { result ->
         val token = scanningToken
         scanningToken = null
-        val session = AlarmStore(this).sessions().firstOrNull()
+        val session = AlarmStore(this).activeSession()
         if (result.contents != null && session != null && session.token == token) {
             val station = StationStore(this).get()
             if (station != null && QrProtocol.verify(result.contents, station, System.currentTimeMillis(), session.startedAt))
@@ -53,18 +54,18 @@ class RingActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         ContextCompat.registerReceiver(this, changed, IntentFilter(RingService.STATE_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
-        if (AlarmStore(this).sessions().isNotEmpty()) RingService.start(this)
+        if (AlarmStore(this).activeSession() != null) RingService.start(this)
         render()
     }
     override fun onStop() { unregisterReceiver(changed); super.onStop() }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); render() }
 
     private fun render() {
-        val session = AlarmStore(this).sessions().firstOrNull() ?: run { finish(); return }
+        val session = AlarmStore(this).activeSession() ?: run { finish(); return }
         val root = Ui.root(this)
-        root.addView(Ui.text(this, if (session.test) "ПРОБНЫЙ ЗВОНОК" else "НОВЫЙ ДЕНЬ", 13f, true))
+        root.addView(Ui.text(this, "WakeUP Clock · ${if (session.test) "Проверка" else if (session.isWakeCheck) "Проверка подъёма" else "Будильник"}", 16f, true))
         root.addView(Ui.text(this, Ui.time(session.alarm), 76f))
-        root.addView(Ui.title(this, "Пора вставать."))
+        root.addView(Ui.title(this, session.alarm.label.ifBlank { if (session.isWakeCheck) "Ты уже встал?" else "Пора вставать." }))
         root.addView(Ui.text(this, if (session.alarm.dismissMode == DismissMode.QR)
             "Дойди до ноутбука, открой сайт и отсканируй свежий QR-код. Звук продолжится во время сканирования."
             else "Отключи будильник, когда будешь готов начать день.", 18f, true))
@@ -74,7 +75,17 @@ class RingActivity : ComponentActivity() {
             root.addView(Ui.text(this, "Чужой код и экран привязки не отключат звонок.", 14f, true))
         } else root.addView(Ui.button(this, "Я встал · отключить", true) { dismiss(session) })
         if (session.test) root.addView(Ui.button(this, "Остановить проверку") { dismiss(session) })
-        val count = AlarmStore(this).sessions().size
+        if (FollowUpRules.canSnooze(session)) root.addView(Ui.button(this, "Отложить на ${session.alarm.snoozeMinutes} мин") {
+            AlertDialog.Builder(this).setTitle("Отложить звонок?")
+                .setMessage("Ещё доступно отсрочек: ${session.alarm.maxSnoozes - session.snoozeCount}. Следующий звонок через ${session.alarm.snoozeMinutes} минут.")
+                .setPositiveButton("Отложить") { _, _ ->
+                    if (!RingActions.snooze(this, session)) Toast.makeText(this, "Не удалось запланировать повтор — звук продолжится", Toast.LENGTH_LONG).show()
+                    render()
+                }.setNegativeButton("Отмена", null).show()
+        })
+        if (!session.test && !session.isWakeCheck && session.alarm.wakeCheckMinutes > 0)
+            root.addView(Ui.text(this, "После отключения — ещё один звонок через ${session.alarm.wakeCheckMinutes} минут.", 15f, true))
+        val count = AlarmStore(this).sessions().count { it.dueAt <= System.currentTimeMillis() }
         if (count > 1) root.addView(Ui.text(this, "Ещё в очереди: ${count - 1}", 14f, true))
     }
 
@@ -95,12 +106,8 @@ class RingActivity : ComponentActivity() {
     }
 
     private fun dismiss(session: RingSession) {
-        val store = AlarmStore(this)
-        if (store.sessions().firstOrNull()?.token != session.token) return
-        store.removeSession(session.token)
-        if (store.sessions().isEmpty()) {
-            stopService(Intent(this, RingService::class.java))
-            finish()
-        } else { RingService.start(this); render() }
+        if (!RingActions.dismiss(this, session))
+            Toast.makeText(this, "Не удалось запланировать проверку подъёма — звук продолжится", Toast.LENGTH_LONG).show()
+        render()
     }
 }

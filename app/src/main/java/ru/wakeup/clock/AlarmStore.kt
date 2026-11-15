@@ -27,7 +27,8 @@ class AlarmStore(context: Context) {
         (0 until values.length()).map {
             val json = values.getJSONObject(it)
             RingSession(json.getString("token"), decodeAlarm(json.getJSONObject("alarm")),
-                json.getLong("startedAt"), json.optBoolean("test"))
+                json.getLong("startedAt"), json.optBoolean("test"), json.optLong("dueAt"),
+                json.optInt("snoozeCount"), json.optBoolean("isWakeCheck"))
         }
     }
 
@@ -38,10 +39,15 @@ class AlarmStore(context: Context) {
     }
 
     fun removeSession(token: String) = writeSessions(sessions().filterNot { it.token == token })
+    fun replaceSession(token: String, replacement: RingSession?) {
+        writeSessions(sessions().mapNotNull { if (it.token == token) replacement else it })
+    }
+    fun activeSession(now: Long = System.currentTimeMillis()): RingSession? = sessions().firstOrNull { it.dueAt <= now }
     private fun writeSessions(sessions: List<RingSession>) {
         prefs.edit().putString("sessions", JSONArray().apply {
             sessions.forEach { put(JSONObject().put("token", it.token).put("alarm", encodeAlarm(it.alarm))
-                .put("startedAt", it.startedAt).put("test", it.test)) }
+                .put("startedAt", it.startedAt).put("test", it.test).put("dueAt", it.dueAt)
+                .put("snoozeCount", it.snoozeCount).put("isWakeCheck", it.isWakeCheck)) }
         }.toString()).commit()
     }
 
@@ -52,17 +58,33 @@ class AlarmStore(context: Context) {
 
     private fun array(key: String): JSONArray = JSONArray(prefs.getString(key, "[]"))
 
-    private fun encodeAlarm(a: Alarm) = JSONObject().put("id", a.id).put("hour", a.hour)
+    private fun encodeAlarm(a: Alarm) = AlarmJson.encode(a)
+    private fun decodeAlarm(j: JSONObject) = AlarmJson.decode(j)
+}
+
+object AlarmJson {
+    fun encode(a: Alarm) = JSONObject().put("id", a.id).put("hour", a.hour)
         .put("minute", a.minute).put("days", a.days).put("enabled", a.enabled)
         .put("sound", a.sound).put("volume", a.volume).put("persistence", a.persistence.name)
         .put("dismissMode", a.dismissMode.name).put("scheduledAt", a.scheduledAt)
+        .put("label", a.label).put("soundTitle", a.soundTitle).put("vibrate", a.vibrate)
+        .put("fadeInSeconds", a.fadeInSeconds).put("snoozeMinutes", a.snoozeMinutes)
+        .put("maxSnoozes", a.maxSnoozes).put("wakeCheckMinutes", a.wakeCheckMinutes)
 
-    private fun decodeAlarm(j: JSONObject) = Alarm(
-        id = j.getInt("id"), hour = j.getInt("hour"), minute = j.getInt("minute"), days = j.getInt("days"),
-        enabled = j.getBoolean("enabled"), sound = j.optString("sound"), volume = j.optInt("volume", 80).coerceIn(20, 100),
-        persistence = Persistence.valueOf(j.getString("persistence")),
-        dismissMode = DismissMode.valueOf(j.getString("dismissMode")), scheduledAt = j.optLong("scheduledAt"),
-    )
+    fun decode(j: JSONObject): Alarm {
+        val persistence = Persistence.valueOf(j.getString("persistence"))
+        return Alarm(
+            id = j.getInt("id"), hour = j.getInt("hour"), minute = j.getInt("minute"), days = j.getInt("days"),
+            enabled = j.getBoolean("enabled"), sound = j.optString("sound"), volume = j.optInt("volume", 80).coerceIn(20, 100),
+            persistence = persistence, dismissMode = DismissMode.valueOf(j.getString("dismissMode")),
+            scheduledAt = j.optLong("scheduledAt"), label = j.optString("label"), soundTitle = j.optString("soundTitle"),
+            vibrate = j.optBoolean("vibrate", persistence == Persistence.STRONG),
+            fadeInSeconds = j.optInt("fadeInSeconds", if (persistence == Persistence.STRONG) 30 else 0).coerceIn(0, 120),
+            snoozeMinutes = j.optInt("snoozeMinutes").coerceIn(0, 30),
+            maxSnoozes = j.optInt("maxSnoozes", 1).coerceIn(1, 3),
+            wakeCheckMinutes = j.optInt("wakeCheckMinutes").coerceIn(0, 30),
+        )
+    }
 }
 
 /** Credential-encrypted storage: pairing is only accessible after the user unlocks the phone. */

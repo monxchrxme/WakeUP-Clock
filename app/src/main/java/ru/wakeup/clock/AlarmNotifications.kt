@@ -27,11 +27,11 @@ object AlarmNotifications {
         val show = PendingIntent.getActivity(context, 0,
             Intent(context, RingActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val text = if (session.test) "Проверка будильника" else if (session.alarm.dismissMode == DismissMode.QR)
+        val text = if (session.test) "Пробный звонок" else if (session.isWakeCheck) "Проверка подъёма — подтверди, что не уснул" else if (session.alarm.dismissMode == DismissMode.QR)
             "Встань и отсканируй QR на ноутбуке" else "Пора начинать день"
         return Notification.Builder(context, CHANNEL)
             .setSmallIcon(ru.wakeup.clock.R.drawable.ic_alarm)
-            .setContentTitle("Пора вставать")
+            .setContentTitle(session.alarm.label.ifBlank { "WakeUP Clock" })
             .setContentText(text)
             .setCategory(Notification.CATEGORY_ALARM)
             .setVisibility(Notification.VISIBILITY_PUBLIC)

@@ -36,7 +36,8 @@ class RingService : Service() {
     private val pulse = object : Runnable {
         override fun run() {
             val session = current ?: return
-            if (session.alarm.persistence == Persistence.STRONG) updateVolume(session)
+            if (session.alarm.persistence == Persistence.STRONG ||
+                SystemClock.elapsedRealtime() - beganElapsed <= session.alarm.fadeInSeconds * 1000L) updateVolume(session)
             if (!focusPaused && player?.isPlaying != true) play(session)
             if (wakeLock?.isHeld != true) wakeLock?.acquire(10 * 60_000L)
             handler.postDelayed(this, 1000)
@@ -52,7 +53,7 @@ class RingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val session = store.sessions().firstOrNull()
+        val session = store.activeSession()
         if (session == null) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -81,7 +82,7 @@ class RingService : Service() {
             play(session)
             val vibrator = getSystemService(Vibrator::class.java)
             vibrator.cancel()
-            if (session.alarm.persistence == Persistence.STRONG) {
+            if (session.alarm.vibrate) {
                 vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 700, 500), 0), attributes)
             }
             wakeLock?.acquire(10 * 60_000L)
@@ -93,8 +94,8 @@ class RingService : Service() {
 
     private fun updateVolume(session: RingSession) {
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-        val fraction = if (session.alarm.persistence == Persistence.STRONG)
-            (0.25 + 0.75 * ((SystemClock.elapsedRealtime() - beganElapsed) / 30_000.0).coerceIn(0.0, 1.0)) else 1.0
+        val fraction = if (session.alarm.fadeInSeconds > 0)
+            (0.25 + 0.75 * ((SystemClock.elapsedRealtime() - beganElapsed) / (session.alarm.fadeInSeconds * 1000.0)).coerceIn(0.0, 1.0)) else 1.0
         val volume = ceil(max * (session.alarm.volume / 100.0) * fraction).toInt().coerceIn(1, max)
         // Some DND policies prohibit stream changes. Keep trying sound without crashing the service.
         runCatching { audio.setStreamVolume(AudioManager.STREAM_ALARM, volume, 0) }
@@ -126,7 +127,7 @@ class RingService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Swiping away the app is not a dismissal. A pending exact alarm also recovers a killed service.
-        if (store.sessions().isNotEmpty()) AlarmScheduler.scheduleRecovery(this)
+        if (store.activeSession() != null) AlarmScheduler.scheduleRecovery(this)
         super.onTaskRemoved(rootIntent)
     }
 
@@ -138,7 +139,7 @@ class RingService : Service() {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         store.originalVolume()?.let { runCatching { audio.setStreamVolume(AudioManager.STREAM_ALARM, it, 0) } }
         store.forgetVolume()
-        if (store.sessions().isNotEmpty()) AlarmScheduler.scheduleRecovery(this)
+        if (store.activeSession() != null) AlarmScheduler.scheduleRecovery(this)
         super.onDestroy()
     }
 

@@ -12,10 +12,14 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 object Ui {
-    const val BG = 0xFFF5F3ED.toInt()
-    const val INK = 0xFF1E302A.toInt()
-    const val MUTED = 0xFF66736C.toInt()
-    const val GREEN = 0xFF315749.toInt()
+    const val BG = 0xFF282828.toInt()
+    const val INK = 0xFFD4BE98.toInt()
+    const val MUTED = 0xFFA89984.toInt()
+    const val GREEN = 0xFFA9B665.toInt()
+    const val SURFACE = 0xFF32302F.toInt()
+    const val LINE = 0xFF504945.toInt()
+    const val ORANGE = 0xFFE78A4E.toInt()
+    const val RED = 0xFFEA6962.toInt()
     fun dp(activity: Activity, value: Int) = (value * activity.resources.displayMetrics.density).toInt()
 
     fun root(activity: Activity): LinearLayout {
@@ -51,10 +55,10 @@ object Ui {
         Button(activity).apply {
             text = label; isAllCaps = false; textSize = 16f
             minHeight = dp(activity, 52)
-            setTextColor(if (primary) Color.WHITE else GREEN)
+            setTextColor(if (primary) BG else GREEN)
             background = GradientDrawable().apply {
                 cornerRadius = dp(activity, 16).toFloat()
-                setColor(if (primary) GREEN else 0xFFE5EAE2.toInt())
+                setColor(if (primary) GREEN else 0xFF45403D.toInt())
             }
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
                 topMargin = dp(activity, 8); bottomMargin = dp(activity, 8)
@@ -65,7 +69,7 @@ object Ui {
     fun card(activity: Activity) = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(activity, 18), dp(activity, 12), dp(activity, 18), dp(activity, 12))
-        background = GradientDrawable().apply { cornerRadius = dp(activity, 20).toFloat(); setColor(Color.WHITE) }
+        background = GradientDrawable().apply { cornerRadius = dp(activity, 20).toFloat(); setColor(SURFACE) }
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 12) }
     }
 

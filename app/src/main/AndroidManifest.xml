@@ -14,7 +14,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application
         android:allowBackup="false"
-        android:label="Пора вставать"
+        android:label="WakeUP Clock"
         android:icon="@drawable/ic_alarm"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
@@ -24,6 +24,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".AlarmEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".RingActivity" android:exported="false"
             android:directBootAware="true" android:launchMode="singleTask"
             android:showWhenLocked="true" android:turnScreenOn="true" />

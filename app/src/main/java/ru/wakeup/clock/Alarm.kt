@@ -18,6 +18,14 @@ data class Alarm(
     val persistence: Persistence = Persistence.STRONG,
     val dismissMode: DismissMode = DismissMode.QR,
     val scheduledAt: Long = 0,
+    val label: String = "",
+    val soundTitle: String = "",
+    val vibrate: Boolean = true,
+    val fadeInSeconds: Int = 30,
+    /** Zero disables snooze / wake-up check. Existing alarms retain the strict behaviour. */
+    val snoozeMinutes: Int = 0,
+    val maxSnoozes: Int = 1,
+    val wakeCheckMinutes: Int = 0,
 )
 
 data class RingSession(
@@ -25,6 +33,9 @@ data class RingSession(
     val alarm: Alarm,
     val startedAt: Long,
     val test: Boolean = false,
+    val dueAt: Long = 0,
+    val snoozeCount: Int = 0,
+    val isWakeCheck: Boolean = false,
 )
 
 object NextAlarm {

@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5f3ed">
-  <meta name="description" content="QR-станция для будильника «Пора вставать». Открой на ноутбуке и отсканируй код телефоном.">
-  <title>Пора вставать — утренняя станция</title>
+  <meta name="theme-color" content="#282828">
+  <meta name="description" content="QR-станция WakeUP Clock. Открой на ноутбуке и отсканируй код телефоном.">
+  <title>WakeUP Clock — утренняя станция</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <script src="/vendor/qrcodegen.js" defer></script>
@@ -14,7 +14,7 @@
 <body>
   <div class="page">
     <header>
-      <a class="brand" href="/" aria-label="Пора вставать — главная"><span class="sun" aria-hidden="true">✳</span> пора вставать<span class="brand-dot">.</span></a>
+      <a class="brand" href="/" aria-label="WakeUP Clock — главная"><span class="sun" aria-hidden="true">✳</span> WakeUP Clock<span class="brand-dot">.</span></a>
       <span class="header-note">Маленький шаг из кровати</span>
     </header>
 
@@ -55,7 +55,7 @@
   <dialog id="pair-dialog" aria-labelledby="pair-title">
     <div class="dialog-top"><span class="eyebrow">ОДНОРАЗОВАЯ НАСТРОЙКА</span><button class="close" data-close="pair-dialog" type="button" aria-label="Закрыть привязку">×</button></div>
     <h2 id="pair-title">Свяжем два устройства.</h2>
-    <p>На телефоне открой «Пора вставать» → «Связать с браузером». Отсканируй этот код и подтверди привязку.</p>
+    <p>На телефоне открой WakeUP Clock → «Связать с браузером». Отсканируй этот код и подтверди привязку.</p>
     <div class="pair-qr" id="pair-qr" role="img" aria-label="QR привязки этого браузера"></div>
     <p class="secret-note">Этот код содержит ключ. Не сохраняй и не отправляй его. Для отключения будильника используется другой, обновляемый код.</p>
     <button class="primary full" data-close="pair-dialog" type="button">Вернуться к утреннему коду</button>
@@ -64,7 +64,7 @@
   <dialog id="help-dialog" aria-labelledby="help-title">
     <div class="dialog-top"><span class="eyebrow">ПАРА ВАЖНЫХ ДЕТАЛЕЙ</span><button class="close" data-close="help-dialog" type="button" aria-label="Закрыть справку">×</button></div>
     <h2 id="help-title">Ноутбук — повод подняться.</h2>
-    <p><a class="download-link" href="https://github.com/monxchrxme/WakeUP-Clock/releases/download/v0.1.0/wake-up-clock-0.1.0-debug.apk">Скачать приложение для Android 8+ · APK</a></p>
+    <p><a class="download-link" href="https://github.com/monxchrxme/WakeUP-Clock/releases/download/v0.2.0/wake-up-clock-0.2.0-debug.apk">Скачать приложение для Android 8+ · APK</a></p>
     <p>Открой этот сайт на ноутбуке и один раз свяжи браузер с Android-приложением. В будильнике выбери отключение QR-кодом.</p>
     <p>Утром открой страницу в том же браузере. Свежий код проверяется на телефоне, интернет приложению не нужен. Уже загруженная страница продолжает обновлять код без сети.</p>
     <p>Включи автоматическую дату и время на обоих устройствах. Старый скриншот перестаёт подходить максимум через 45 секунд.</p>

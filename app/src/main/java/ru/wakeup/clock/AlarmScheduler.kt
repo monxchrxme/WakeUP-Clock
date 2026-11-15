@@ -10,6 +10,7 @@ import android.os.Build
 
 object AlarmScheduler {
     const val RECOVER = "ru.wakeup.clock.RECOVER"
+    const val SESSION_DUE = "ru.wakeup.clock.SESSION_DUE"
     fun permitted(context: Context): Boolean = Build.VERSION.SDK_INT < 31 ||
         context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
@@ -53,7 +54,29 @@ object AlarmScheduler {
                 fire(context, alarm.id, alarm.scheduledAt, startService = false)
             } else schedule(context, alarm, preserveFuture = !recompute)
         }
-        if (store.sessions().isNotEmpty()) scheduleRecovery(context)
+        for (session in store.sessions().filter { it.dueAt > now }) scheduleSession(context, session)
+        if (store.activeSession() != null) scheduleRecovery(context)
+    }
+
+    private fun sessionOperation(context: Context, session: RingSession) = PendingIntent.getBroadcast(context, 0,
+        Intent(context, AlarmReceiver::class.java).setAction(SESSION_DUE)
+            .setData(Uri.parse("wakeup://session/${session.token}"))
+            .putExtra("token", session.token).putExtra("dueAt", session.dueAt),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    fun scheduleSession(context: Context, session: RingSession): Boolean {
+        if (!permitted(context)) return false
+        val show = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return try {
+            context.getSystemService(AlarmManager::class.java).setAlarmClock(
+                AlarmManager.AlarmClockInfo(session.dueAt, show), sessionOperation(context, session))
+            true
+        } catch (_: SecurityException) { false }
+    }
+
+    fun cancelSession(context: Context, session: RingSession) {
+        context.getSystemService(AlarmManager::class.java).cancel(sessionOperation(context, session))
     }
 
     fun scheduleRecovery(context: Context) {
@@ -79,7 +102,11 @@ object AlarmScheduler {
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == AlarmScheduler.RECOVER) {
-            if (AlarmStore(context).sessions().isNotEmpty()) RingService.start(context)
+            if (AlarmStore(context).activeSession() != null) RingService.start(context)
+        } else if (intent.action == AlarmScheduler.SESSION_DUE) {
+            val session = AlarmStore(context).sessions().find { it.token == intent.getStringExtra("token") &&
+                it.dueAt == intent.getLongExtra("dueAt", -1) }
+            if (session != null && session.dueAt <= System.currentTimeMillis()) RingService.start(context)
         } else AlarmScheduler.fire(context, intent.getIntExtra("id", -1), intent.getLongExtra("at", 0))
     }
 }
