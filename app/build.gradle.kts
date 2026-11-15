@@ -10,8 +10,8 @@ android {
         applicationId = "ru.wakeup.clock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -24,6 +24,7 @@ android {
 dependencies {
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

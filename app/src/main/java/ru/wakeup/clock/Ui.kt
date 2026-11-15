@@ -22,7 +22,8 @@ object Ui {
     const val RED = 0xFFEA6962.toInt()
     fun dp(activity: Activity, value: Int) = (value * activity.resources.displayMetrics.density).toInt()
 
-    fun root(activity: Activity): LinearLayout {
+    fun root(activity: Activity, footer: View? = null): LinearLayout {
+        val frame = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
         val scroll = ScrollView(activity).apply { setBackgroundColor(BG); isFillViewport = true }
         val column = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -30,14 +31,16 @@ object Ui {
         }
         scroll.addView(column)
         // Handle Android 15+ edge-to-edge and the scanner returning with the navigation bar visible.
-        scroll.setOnApplyWindowInsetsListener { view, insets ->
+        frame.setOnApplyWindowInsetsListener { view, insets ->
             @Suppress("DEPRECATION")
             view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
                 insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
             insets
         }
-        activity.setContentView(scroll)
-        scroll.requestApplyInsets()
+        frame.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        if (footer != null) frame.addView(footer, LinearLayout.LayoutParams(-1, -2))
+        activity.setContentView(frame)
+        frame.requestApplyInsets()
         return column
     }
 

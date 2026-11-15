@@ -19,6 +19,16 @@ class AlarmStore(context: Context) {
     }
 
     fun delete(id: Int) = writeAlarms(alarms().filterNot { it.id == id })
+    fun deleteAll(ids: Set<Int>): List<Alarm> {
+        val before = alarms()
+        writeAlarms(before.filterNot { it.id in ids })
+        return before.filter { it.id in ids }
+    }
+    fun disableAll(ids: Set<Int>): List<Alarm> {
+        val before = alarms()
+        writeAlarms(before.map { if (it.id in ids) it.copy(enabled = false, scheduledAt = 0) else it })
+        return before.filter { it.id in ids }
+    }
     private fun writeAlarms(alarms: List<Alarm>) {
         prefs.edit().putString("alarms", JSONArray().apply { alarms.forEach { put(encodeAlarm(it)) } }.toString()).commit()
     }

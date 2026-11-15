@@ -9,20 +9,80 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Switch
+import android.view.ActionMode
+import android.view.Gravity
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.random.Random
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private var permissionsExpanded: Boolean? = null
     private var lastReady: Boolean? = null
+    private var selecting = false
+    private val selectedIds = mutableSetOf<Int>()
+    private var selectionMode: ActionMode? = null
+    private var alarmAdapter: AlarmListAdapter? = null
+    private var emptyLabel: TextView? = null
+    private var selectButton: TextView? = null
+    private var undoBar: LinearLayout? = null
+    private var undoLabel: TextView? = null
+    private var deletedAlarms: List<Alarm> = emptyList()
+    private val normalOnlyViews = mutableListOf<View>()
+    private val selectionBack = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() { selectionMode?.finish() }
+    }
+    private val selectionCallback = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            menu.add(0, 1, 0, "Выбрать все").setIcon(R.drawable.ic_select_all).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            menu.add(0, 2, 1, "Отключить выбранные").setIcon(R.drawable.ic_alarm_off).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            menu.add(0, 3, 2, "Удалить выбранные").setIcon(R.drawable.ic_delete).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            return true
+        }
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            mode.title = "Выбрано: ${selectedIds.size}"
+            menu.findItem(1).title = if (selectedIds.size == alarmAdapter?.alarms?.size) "Снять выделение" else "Выбрать все"
+            menu.findItem(2).isEnabled = selectedIds.isNotEmpty()
+            menu.findItem(3).isEnabled = selectedIds.isNotEmpty()
+            return true
+        }
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+            when (item.itemId) {
+                1 -> {
+                    val ids = alarmAdapter?.alarms.orEmpty().map { it.id }.toSet()
+                    if (selectedIds.containsAll(ids)) selectedIds.clear() else selectedIds.addAll(ids)
+                    refreshSelection()
+                }
+                2 -> {
+                    val count = AlarmBatchActions.disable(this@MainActivity, selectedIds.toSet()).size
+                    mode.finish(); refreshAlarms(); toast("Отключено будильников: $count")
+                }
+                3 -> deleteAlarms(selectedIds.toSet())
+                else -> return false
+            }
+            return true
+        }
+        override fun onDestroyActionMode(mode: ActionMode) {
+            selectionMode = null; selecting = false; selectedIds.clear(); selectionBack.isEnabled = false
+            selectButton?.text = "Выбрать"
+            updateSelectionChrome()
+            alarmAdapter?.let { it.update(it.alarms, false, emptySet()) }
+        }
+    }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { render() }
     private val pairScanner = registerForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
@@ -43,11 +103,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState?.containsKey("permissionsExpanded") == true)
             permissionsExpanded = savedInstanceState.getBoolean("permissionsExpanded")
+        selecting = savedInstanceState?.getBoolean("selecting") ?: false
+        savedInstanceState?.getIntArray("selectedIds")?.let { selectedIds.addAll(it.toList()) }
+        deletedAlarms = savedInstanceState?.getStringArrayList("deletedAlarms")?.map { AlarmJson.decode(JSONObject(it)) }.orEmpty()
+        onBackPressedDispatcher.addCallback(this, selectionBack)
         AlarmNotifications.channel(this)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         permissionsExpanded?.let { outState.putBoolean("permissionsExpanded", it) }
+        outState.putBoolean("selecting", selecting)
+        outState.putIntArray("selectedIds", selectedIds.toIntArray())
+        outState.putStringArrayList("deletedAlarms", ArrayList(deletedAlarms.map { AlarmJson.encode(it).toString() }))
         super.onSaveInstanceState(outState)
     }
 
@@ -68,9 +135,10 @@ class MainActivity : ComponentActivity() {
 
     private fun render() {
         val store = AlarmStore(this)
-        val root = Ui.root(this)
-        root.addView(Ui.title(this, "WakeUP Clock"))
-        root.addView(Ui.text(this, "Утро начинается с одного шага.", 16f, true))
+        val root = Ui.root(this, makeUndoBar())
+        normalOnlyViews.clear()
+        root.addView(Ui.title(this, "WakeUP Clock").also { normalOnlyViews.add(it) })
+        root.addView(Ui.text(this, "Утро начинается с одного шага.", 16f, true).also { normalOnlyViews.add(it) })
         if (store.activeSession() != null) root.addView(Ui.button(this, "Вернуться к звонку", true) { startActivity(Intent(this, RingActivity::class.java)) })
         store.sessions().filter { it.dueAt > System.currentTimeMillis() }.sortedBy { it.dueAt }.forEach {
             root.addView(Ui.text(this, "${if (it.isWakeCheck) "Проверка подъёма" else "Отложенный звонок"} · ${nextLabel(it.dueAt)}", 15f))
@@ -79,7 +147,7 @@ class MainActivity : ComponentActivity() {
         val expanded = permissionsExpanded ?: !complete
         root.addView(Ui.button(this, "${if (complete) "● Всё готово к звонку" else "Нужны разрешения"}  ${if (expanded) "⌃" else "⌄"}") {
             permissionsExpanded = !expanded; render()
-        })
+        }.also { normalOnlyViews.add(it) })
         if (expanded) {
             val permissions = Ui.card(this)
             val manager = getSystemService(NotificationManager::class.java)
@@ -102,30 +170,44 @@ class MainActivity : ComponentActivity() {
             permissions.addView(Ui.text(this, "Xiaomi / MIUI: включи автозапуск и выбери режим батареи без ограничений. В режиме «Не беспокоить» разреши будильники. Названия пунктов зависят от прошивки.", 15f, true))
             permissions.addView(Ui.button(this, "Настройки приложения и батареи") { openSetting(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) })
             root.addView(permissions)
+            normalOnlyViews.add(permissions)
         }
-        root.addView(Ui.text(this, "Будильники", 24f))
+        val heading = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        heading.addView(Ui.text(this, "Будильники", 24f), LinearLayout.LayoutParams(0, -2, 1f))
+        selectButton = TextView(this).apply {
+            text = if (selecting) "Готово" else "Выбрать"; textSize = 16f; setTextColor(Ui.ORANGE)
+            setPadding(Ui.dp(this@MainActivity, 12), Ui.dp(this@MainActivity, 14), 0, Ui.dp(this@MainActivity, 14))
+            isFocusable = true
+            setOnClickListener { if (selecting) selectionMode?.finish() else beginSelection() }
+        }
+        heading.addView(selectButton)
+        root.addView(heading)
+        normalOnlyViews.add(heading)
         val alarms = store.alarms().sortedWith(compareBy({ it.hour }, { it.minute }))
-        if (alarms.isEmpty()) root.addView(Ui.text(this, "Добавь время первого подъёма.", 16f, true))
-        for (alarm in alarms) {
-            val card = Ui.card(this)
-            card.setOnClickListener { edit(alarm) }
-            card.addView(Switch(this).apply {
-                text = Ui.time(alarm); textSize = 46f; setTextColor(if (alarm.enabled) Ui.INK else Ui.MUTED); isChecked = alarm.enabled
-                setOnCheckedChangeListener { _, checked ->
-                    if (checked && !canArm(alarm.dismissMode)) { setOnCheckedChangeListener(null); isChecked = false; return@setOnCheckedChangeListener }
-                    if (!AlarmScheduler.schedule(this@MainActivity, alarm.copy(enabled = checked))) toast("Нет разрешения на точный будильник")
-                    render()
+        emptyLabel = Ui.text(this, "Добавь время первого подъёма.", 16f, true)
+        root.addView(emptyLabel)
+        alarmAdapter = AlarmListAdapter(this,
+            click = { if (selecting) { if (!selectedIds.add(it.id)) selectedIds.remove(it.id); refreshSelection() } else edit(it) },
+            longClick = { beginSelection(it.id) },
+            toggle = { alarm, enabled ->
+                if (!enabled || canArm(alarm.dismissMode)) {
+                    if (!AlarmScheduler.schedule(this, alarm.copy(enabled = enabled))) toast("Нет разрешения на точный будильник")
                 }
+                refreshAlarms()
             })
-            card.addView(Ui.text(this, "${alarm.label.ifBlank { "Будильник" }} · ${Ui.daysLabel(alarm.days)}", 16f, true))
-            card.addView(Ui.text(this, "${if (alarm.dismissMode == DismissMode.QR) "QR с ноутбука" else "Кнопка"} · ${alarm.volume}%", 14f, true))
-            if (alarm.enabled && alarm.scheduledAt > 0) card.addView(Ui.text(this, "Следующий: ${nextLabel(alarm.scheduledAt)}", 14f, true))
-            root.addView(card)
+        val list = RecyclerView(this).apply {
+            id = android.R.id.list; layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = alarmAdapter; isNestedScrollingEnabled = false; itemAnimator = null
         }
+        alarmAdapter!!.update(alarms, selecting, selectedIds)
+        alarmAdapter!!.attachSwipe(list) { deleteAlarms(setOf(it.id)) }
+        root.addView(list, LinearLayout.LayoutParams(-1, -2))
+        refreshAlarms()
         root.addView(Ui.button(this, "＋ Добавить будильник", true) {
-            val id = generateSequence { Random.nextInt(1, Int.MAX_VALUE) }.first { candidate -> alarms.none { it.id == candidate } }
-            edit(Alarm(id = id))
-        })
+            val existingIds = store.alarms().map { it.id }.toSet()
+            val id = generateSequence { Random.nextInt(1, Int.MAX_VALUE) }.first { it !in existingIds }
+            selectionMode?.finish(); edit(Alarm(id = id))
+        }.also { normalOnlyViews.add(it) })
         val station = StationStore(this).get()
         val pairing = Ui.card(this)
         pairing.addView(Ui.text(this, station?.let { "Ноутбук · браузер ${it.id.takeLast(6)}" } ?: "Свяжи ноутбук для отключения QR-кодом", 16f))
@@ -135,6 +217,72 @@ class MainActivity : ComponentActivity() {
                 .setPrompt("QR привязки с сайта на ноутбуке").setBeepEnabled(false).setOrientationLocked(false))
         })
         root.addView(pairing)
+        normalOnlyViews.add(pairing)
+        if (selecting && selectionMode == null && alarms.isNotEmpty()) beginSelection()
+        updateSelectionChrome()
+    }
+
+    private fun beginSelection(id: Int? = null) {
+        if (id != null) selectedIds.add(id)
+        selecting = true
+        if (selectionMode == null) selectionMode = startActionMode(selectionCallback)
+        if (selectionMode == null) { selecting = false; selectedIds.clear() }
+        selectionBack.isEnabled = selecting
+        selectButton?.text = if (selecting) "Готово" else "Выбрать"
+        updateSelectionChrome()
+        refreshSelection()
+    }
+
+    private fun refreshSelection() {
+        alarmAdapter?.let { it.update(it.alarms, selecting, selectedIds) }
+        selectionMode?.invalidate()
+    }
+
+    private fun updateSelectionChrome() {
+        normalOnlyViews.forEach { it.visibility = if (selecting) View.GONE else View.VISIBLE }
+    }
+
+    private fun refreshAlarms() {
+        val alarms = AlarmStore(this).alarms().sortedWith(compareBy({ it.hour }, { it.minute }))
+        selectedIds.retainAll(alarms.map { it.id }.toSet())
+        if (alarms.isEmpty()) { selectionMode?.finish(); selecting = false }
+        alarmAdapter?.update(alarms, selecting, selectedIds)
+        emptyLabel?.visibility = if (alarms.isEmpty()) View.VISIBLE else View.GONE
+        selectButton?.visibility = if (alarms.isEmpty()) View.GONE else View.VISIBLE
+        selectionMode?.invalidate()
+    }
+
+    private fun deleteAlarms(ids: Set<Int>) {
+        val deleted = AlarmBatchActions.delete(this, ids)
+        if (deleted.isNotEmpty()) deletedAlarms = deleted
+        selectionMode?.finish()
+        refreshAlarms()
+        refreshUndoBar()
+    }
+
+    private fun makeUndoBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setBackgroundColor(Ui.SURFACE)
+            setPadding(Ui.dp(this@MainActivity, 20), Ui.dp(this@MainActivity, 6), Ui.dp(this@MainActivity, 14), Ui.dp(this@MainActivity, 6))
+        }
+        undoLabel = Ui.text(this, "", 15f)
+        bar.addView(undoLabel, LinearLayout.LayoutParams(0, -2, 1f))
+        bar.addView(TextView(this).apply {
+            text = "Отменить"; textSize = 16f; setTextColor(Ui.ORANGE); isFocusable = true
+            setPadding(Ui.dp(this@MainActivity, 12), Ui.dp(this@MainActivity, 14), Ui.dp(this@MainActivity, 6), Ui.dp(this@MainActivity, 14))
+            setOnClickListener {
+                val unavailable = AlarmBatchActions.restore(this@MainActivity, deletedAlarms)
+                deletedAlarms = emptyList(); refreshAlarms(); refreshUndoBar()
+                if (unavailable > 0) toast("Часть будильников восстановлена выключенной. Разреши точные звонки.")
+            }
+        })
+        undoBar = bar; refreshUndoBar()
+        return bar
+    }
+
+    private fun refreshUndoBar() {
+        undoBar?.visibility = if (deletedAlarms.isEmpty()) View.GONE else View.VISIBLE
+        undoLabel?.text = if (deletedAlarms.size == 1) "Удалён будильник ${Ui.time(deletedAlarms.first())}" else "Удалено будильников: ${deletedAlarms.size}"
     }
 
     private fun canArm(mode: DismissMode): Boolean {

@@ -2,6 +2,8 @@
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#A9B665</item>
+        <item name="android:actionModeBackground">@color/gruvbox_surface</item>
+        <item name="android:actionMenuTextColor">#D4BE98</item>
         <item name="android:textColorPrimary">#D4BE98</item>
         <item name="android:textColorSecondary">#A89984</item>
         <item name="android:windowLightStatusBar">false</item>
