@@ -1,9 +1,11 @@
 import { createStation, validStation, STORAGE_KEY, pairPayload, dismissPayload, timeSlot, PERIOD } from './protocol.js';
+import { connectDownloadLink } from './releases.js';
 
 const $ = id => document.getElementById(id);
 let station;
 let renderedSlot = -1;
 let generating = false;
+const downloads = $('apk-download') && $('apk-status') ? connectDownloadLink($('apk-download'), $('apk-status')) : null;
 
 function error(message) {
   $('error').textContent = message;
@@ -82,7 +84,7 @@ function openPair() {
   } catch (e) { error(e.message); }
 }
 $('pair').addEventListener('click', openPair);
-$('help').addEventListener('click', () => $('help-dialog').showModal());
+$('help').addEventListener('click', () => { $('help-dialog').showModal(); void downloads?.refresh(); });
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(button.dataset.close).close()));
 $('pair-dialog').addEventListener('close', () => $('pair-qr').replaceChildren());
 
