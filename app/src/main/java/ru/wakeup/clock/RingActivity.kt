@@ -66,6 +66,9 @@ class RingActivity : ComponentActivity() {
         root.addView(Ui.text(this, "WakeUP Clock · ${if (session.test) "Проверка" else if (session.isWakeCheck) "Проверка подъёма" else "Будильник"}", 16f, true))
         root.addView(Ui.text(this, Ui.time(session.alarm), 76f))
         root.addView(Ui.title(this, session.alarm.label.ifBlank { if (session.isWakeCheck) "Ты уже встал?" else "Пора вставать." }))
+        if (session.alarm.randomSound) session.selectedSound?.title?.takeIf { it.isNotBlank() }?.let {
+            root.addView(Ui.text(this, "Сейчас играет: $it", 16f, true))
+        }
         if (AlarmStore(this).soundFallback()) root.addView(Ui.text(this,
             "Выбранная мелодия недоступна. Играет запасной сигнал — после звонка выбери мелодию заново.", 16f).apply { setTextColor(Ui.RED) })
         root.addView(Ui.text(this, if (session.alarm.dismissMode == DismissMode.QR)

@@ -7,7 +7,6 @@ import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 
-data class SoundChoice(val uri: String, val title: String)
 class SoundImportException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
 object CustomSoundImporter {
@@ -61,10 +60,15 @@ class SoundDefaults(context: Context) {
         return AlarmStore(appContext).alarms().lastOrNull()?.let { SoundChoice(it.sound, it.soundTitle) }
     }
     fun remember(choice: SoundChoice) { prefs.edit().putString("uri", choice.uri).putString("title", choice.title).commit() }
+    fun randomChoices(): List<SoundChoice> = SoundJson.decodeList(org.json.JSONArray(prefs.getString("random-sounds", "[]")))
+    fun rememberRandom(choices: List<SoundChoice>) {
+        prefs.edit().putString("random-sounds", SoundJson.encodeList(choices).toString()).commit()
+    }
 
     fun newAlarm(id: Int): Alarm {
         val sound = current()
         return Alarm(id, sound = sound?.uri ?: "", soundTitle = sound?.title ?: "",
+            randomSounds = randomChoices(),
             dismissMode = if (StationStore(appContext).get() == null) DismissMode.BUTTON else DismissMode.QR)
     }
 }

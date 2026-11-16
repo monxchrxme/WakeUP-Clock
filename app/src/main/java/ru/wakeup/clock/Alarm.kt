@@ -5,6 +5,7 @@ import java.time.ZoneId
 
 enum class DismissMode { BUTTON, QR }
 enum class Persistence { NORMAL, STRONG }
+data class SoundChoice(val uri: String, val title: String)
 
 data class Alarm(
     val id: Int,
@@ -26,6 +27,8 @@ data class Alarm(
     val snoozeMinutes: Int = 0,
     val maxSnoozes: Int = 1,
     val wakeCheckMinutes: Int = 0,
+    val randomSound: Boolean = false,
+    val randomSounds: List<SoundChoice> = emptyList(),
 )
 
 data class RingSession(
@@ -36,6 +39,8 @@ data class RingSession(
     val dueAt: Long = 0,
     val snoozeCount: Int = 0,
     val isWakeCheck: Boolean = false,
+    /** Chosen once when this ring starts; recovery must keep the same song. */
+    val selectedSound: SoundChoice? = null,
 )
 
 object NextAlarm {

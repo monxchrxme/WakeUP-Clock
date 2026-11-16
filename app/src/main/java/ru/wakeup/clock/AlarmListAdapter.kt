@@ -111,7 +111,7 @@ class AlarmListAdapter(
         holder.time.text = Ui.time(alarm)
         holder.time.setTextColor(if (alarm.enabled) Ui.INK else Ui.MUTED)
         holder.detail.text = "${alarm.label.ifBlank { "Будильник" }} · ${Ui.daysLabel(alarm.days)}"
-        holder.mode.text = "${if (alarm.dismissMode == DismissMode.QR) "QR с ноутбука" else "Кнопка"} · ${alarm.volume}%"
+        holder.mode.text = "${if (alarm.dismissMode == DismissMode.QR) "QR с ноутбука" else "Кнопка"} · ${alarm.volume}%${if (alarm.randomSound) " · Случайная песня" else ""}"
         holder.next.visibility = if (alarm.enabled && alarm.scheduledAt > 0) View.VISIBLE else View.GONE
         if (alarm.enabled && alarm.scheduledAt > 0) holder.next.text = "Следующий: ${java.time.Instant.ofEpochMilli(alarm.scheduledAt)
             .atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("dd.MM · HH:mm"))}"

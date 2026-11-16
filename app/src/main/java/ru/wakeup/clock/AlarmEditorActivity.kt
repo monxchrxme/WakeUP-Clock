@@ -51,6 +51,9 @@ class AlarmEditorActivity : ComponentActivity() {
     private val audioFilePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) soundImport.import(this, uri)
     }
+    private val randomAudioPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) soundImport.importRandom(this, uris, draft.randomSounds)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,16 +75,17 @@ class AlarmEditorActivity : ComponentActivity() {
         soundImport.observe { state ->
             if (state == SoundImportModel.State.Loading) {
                 if (importDialog == null) importDialog = AlertDialog.Builder(this)
-                    .setTitle("Подготовка мелодии").setMessage("Сохраняю и проверяю аудиофайл…")
+                    .setTitle("Подготовка музыки").setMessage("Сохраняю и проверяю аудиофайлы…")
                     .setView(ProgressBar(this).apply { setPadding(dp(24), dp(12), dp(24), dp(24)) })
                     .setCancelable(false).show()
             } else {
                 importDialog?.dismiss(); importDialog = null
                 when (state) {
                     is SoundImportModel.State.Ready -> { soundImport.consume(); selectSound(state.choice) }
+                    is SoundImportModel.State.RandomReady -> { soundImport.consume(); selectRandomSounds(state.choices) }
                     is SoundImportModel.State.Failed -> {
                         soundImport.consume()
-                        AlertDialog.Builder(this).setTitle("Мелодия не выбрана").setMessage(state.message)
+                        AlertDialog.Builder(this).setTitle("Музыка не выбрана").setMessage(state.message)
                             .setPositiveButton("Понятно", null).show()
                     }
                     else -> Unit
@@ -99,6 +103,12 @@ class AlarmEditorActivity : ComponentActivity() {
     private fun selectSound(choice: SoundChoice) {
         draft = draft.copy(sound = choice.uri, soundTitle = choice.title)
         SoundDefaults(this).remember(choice)
+        render()
+    }
+
+    private fun selectRandomSounds(choices: List<SoundChoice>) {
+        draft = draft.copy(randomSounds = choices)
+        SoundDefaults(this).rememberRandom(choices)
         render()
     }
 
@@ -154,9 +164,16 @@ class AlarmEditorActivity : ComponentActivity() {
         group {
             row("Повтор", Ui.daysLabel(draft.days)) { chooseDays() }
             row("Название", draft.label.ifBlank { "Будильник" }) { chooseLabel() }
-            row("Мелодия", soundName()) { chooseSound() }
+            toggle("Случайная мелодия", draft.randomSound) {
+                draft = draft.copy(randomSound = it)
+                if (it && draft.randomSounds.isEmpty()) draft = draft.copy(randomSounds = SoundDefaults(this@AlarmEditorActivity).randomChoices())
+                render()
+            }
+            if (draft.randomSound) row("Песни", if (draft.randomSounds.isEmpty()) "Выбрать файлы" else "Выбрано: ${draft.randomSounds.size}") { chooseRandomSounds() }
+            else row("Мелодия", soundName()) { chooseSound() }
         }
-        footer("Мелодия повторяется по кругу до отключения будильника.")
+        footer(if (draft.randomSound) "От 2 до ${RandomSounds.MAX_SONGS} песен. При каждом звонке выбирается новая, без повтора предыдущей. Она играет по кругу до отключения. Обычная мелодия и этот набор запоминаются отдельно."
+            else "Мелодия повторяется по кругу до отключения будильника.")
         group {
             row("Отключение", if (draft.dismissMode == DismissMode.QR) "QR с ноутбука" else "Кнопка") {
                 choice("Отключение", listOf("Кнопка «Я встал»", "Свежий QR с ноутбука"), if (draft.dismissMode == DismissMode.QR) 1 else 0) {
@@ -303,6 +320,42 @@ class AlarmEditorActivity : ComponentActivity() {
         }.show()
     }
 
+    private fun chooseRandomSounds() {
+        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), 0) }
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(list) }
+        val dialog = AlertDialog.Builder(this).setTitle("Песни для случайного звонка")
+            .setView(column).setPositiveButton("Готово", null).create()
+        column.addView(Ui.button(this, "Добавить песни", true) {
+            dialog.dismiss(); randomAudioPicker.launch(arrayOf("audio/*"))
+        })
+        column.addView(Ui.text(this, "В файлах можно выбрать одну или несколько песен за раз. Для случайного звонка нужны хотя бы две.", 14f, true))
+        column.addView(scroll)
+        val clear = Ui.button(this, "Очистить список") {}
+        column.addView(clear)
+        fun updateList() {
+            list.removeAllViews()
+            scroll.layoutParams = LinearLayout.LayoutParams(-1, dp(minOf(280, maxOf(1, draft.randomSounds.size) * 56)))
+            clear.isEnabled = draft.randomSounds.isNotEmpty()
+            clear.alpha = if (clear.isEnabled) 1f else 0.45f
+            if (draft.randomSounds.isEmpty()) list.addView(Ui.text(this, "Список пуст", 16f, true))
+            draft.randomSounds.forEach { song ->
+                list.addView(LinearLayout(this).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(Ui.text(this@AlarmEditorActivity, song.title, 15f).apply { gravity = Gravity.CENTER_VERTICAL; maxLines = 2; ellipsize = TextUtils.TruncateAt.END },
+                        LinearLayout.LayoutParams(0, dp(56), 1f))
+                    addView(navButton("×") {
+                        selectRandomSounds(draft.randomSounds.filterNot { it.uri == song.uri }); updateList()
+                    }.apply { contentDescription = "Удалить песню ${song.title}"; minimumWidth = dp(48); minimumHeight = dp(48) })
+                })
+            }
+        }
+        clear.setOnClickListener { selectRandomSounds(emptyList()); updateList() }
+        updateList()
+        dialog.show()
+        dialog.window?.setBackgroundDrawable(GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(Ui.SURFACE) })
+    }
+
     private fun chooseMinutes(title: String, selected: Int, action: (Int) -> Unit) {
         val values = listOf(5, 10, 15, 20, 30)
         choice(title, values.map { "$it минут" }, values.indexOf(selected)) { action(values[it]) }
@@ -322,6 +375,7 @@ class AlarmEditorActivity : ComponentActivity() {
 
     private fun save() {
         if (soundImport.state == SoundImportModel.State.Loading) { toast("Дождись подготовки мелодии"); return }
+        if (!validRandomSounds()) return
         if (!permissionsReady()) { toast("Сначала настрой разрешения на главном экране"); return }
         if (draft.dismissMode == DismissMode.QR && StationStore(this).get() == null) { toast("Сначала свяжи телефон с браузером"); return }
         if (AlarmScheduler.schedule(this, draft.copy(enabled = true))) finish() else toast("Не удалось запланировать будильник")
@@ -329,6 +383,7 @@ class AlarmEditorActivity : ComponentActivity() {
 
     private fun test() {
         if (soundImport.state == SoundImportModel.State.Loading) { toast("Дождись подготовки мелодии"); return }
+        if (!validRandomSounds()) return
         if (!permissionsReady()) { toast("Сначала настрой разрешения на главном экране"); return }
         if (AlarmStore(this).sessions().isNotEmpty()) { toast("Уже есть активный или отложенный звонок"); return }
         AlarmStore(this).enqueue(draft, test = true)
@@ -341,6 +396,10 @@ class AlarmEditorActivity : ComponentActivity() {
         if (draft == initial) finish()
         else AlertDialog.Builder(this).setTitle("Отменить изменения?").setPositiveButton("Не сохранять") { _, _ -> finish() }
             .setNegativeButton("Продолжить", null).show()
+    }
+    private fun validRandomSounds(): Boolean {
+        if (draft.randomSound && draft.randomSounds.size < 2) { toast("Выбери хотя бы две песни для случайного режима"); return false }
+        return true
     }
     private fun dp(value: Int) = Ui.dp(this, value)
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()

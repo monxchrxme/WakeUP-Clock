@@ -56,4 +56,13 @@ class FollowUpRulesTest {
         assertEquals(now, original.startedAt)
         assertEquals(0, original.snoozeCount)
     }
+    @Test fun followUpsKeepTheirPoolButDrawAnotherSongWhenTheyStart() {
+        val original = session.copy(alarm = alarm.copy(randomSound = true,
+            randomSounds = listOf(SoundChoice("file:///a", "A"), SoundChoice("file:///b", "B"))),
+            selectedSound = SoundChoice("file:///a", "A"))
+        for (next in listOf(FollowUpRules.snooze(original, now)!!, FollowUpRules.wakeCheck(original, now)!!)) {
+            assertEquals(original.alarm, next.alarm)
+            assertNull(next.selectedSound)
+        }
+    }
 }

@@ -25,6 +25,8 @@ class AlarmJsonTest {
         assertEquals(30, alarm.fadeInSeconds)
         assertEquals(0, alarm.snoozeMinutes)
         assertEquals(0, alarm.wakeCheckMinutes)
+        assertFalse(alarm.randomSound)
+        assertTrue(alarm.randomSounds.isEmpty())
     }
     @Test fun updatePreservesNormalAlarmSoundBehaviour() {
         val alarm = AlarmJson.decode(legacy("NORMAL"))
@@ -36,5 +38,12 @@ class AlarmJsonTest {
         val expected = Alarm(42, label = "Встать на работу", soundTitle = "Утро.mp3", snoozeMinutes = 10,
             maxSnoozes = 2, wakeCheckMinutes = 15, vibrate = false, fadeInSeconds = 60)
         assertEquals(expected, AlarmJson.decode(JSONObject(AlarmJson.encode(expected).toString())))
+    }
+    @Test fun randomPoolAndOrdinarySongSurviveStorageIndependently() {
+        val alarm = Alarm(43, sound = "file:///ordinary", soundTitle = "Обычная", randomSound = true,
+            randomSounds = listOf(SoundChoice("file:///a", "A"), SoundChoice("file:///b", "B")))
+        assertEquals(alarm, AlarmJson.decode(JSONObject(AlarmJson.encode(alarm).toString())))
+        val disabled = alarm.copy(randomSound = false)
+        assertEquals(disabled, AlarmJson.decode(JSONObject(AlarmJson.encode(disabled).toString())))
     }
 }

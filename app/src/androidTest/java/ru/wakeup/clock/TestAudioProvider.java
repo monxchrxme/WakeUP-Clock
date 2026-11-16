@@ -19,7 +19,7 @@ public final class TestAudioProvider extends ContentProvider {
     @Override public String getType(Uri uri) { return "audio/wav"; }
     @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String sort) {
         MatrixCursor cursor = new MatrixCursor(new String[]{OpenableColumns.DISPLAY_NAME});
-        cursor.addRow(new Object[]{"custom-tone.wav"});
+        cursor.addRow(new Object[]{uri.getLastPathSegment()});
         return cursor;
     }
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
@@ -29,7 +29,9 @@ public final class TestAudioProvider extends ContentProvider {
             new Thread(() -> {
                 try (OutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
                     if ("invalid".equals(uri.getLastPathSegment())) output.write("not an audio file".getBytes());
-                    else try (InputStream input = getContext().getAssets().open("custom-tone.wav")) {
+                    else try (InputStream input = getContext().getAssets().open(
+                            "other-tone.wav".equals(uri.getLastPathSegment()) ? "other-tone.wav" :
+                            "regular-tone.wav".equals(uri.getLastPathSegment()) ? "regular-tone.wav" : "custom-tone.wav")) {
                         byte[] buffer = new byte[4096];
                         int read;
                         while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);

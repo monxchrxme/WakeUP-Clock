@@ -49,7 +49,7 @@ class RingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val session = store.activeSession()
+        val session = store.activeSession()?.let(store::resolveSound)
         if (session == null) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -99,7 +99,7 @@ class RingService : Service() {
 
     private fun play(session: RingSession) {
         releasePlayer()
-        runCatching { AlarmAudio.start(this, session.alarm.sound) }.onSuccess {
+        runCatching { AlarmAudio.start(this, session.selectedSound?.uri ?: session.alarm.sound) }.onSuccess {
             player = it.player
             val changed = store.soundFallback() != it.usedFallback
             store.setSoundFallback(it.usedFallback)

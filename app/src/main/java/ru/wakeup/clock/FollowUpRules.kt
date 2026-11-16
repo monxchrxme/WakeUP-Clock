@@ -11,7 +11,7 @@ object FollowUpRules {
         if (!canSnooze(session)) return null
         val due = now + session.alarm.snoozeMinutes * 60_000L
         return session.copy(token = UUID.randomUUID().toString(), startedAt = due, dueAt = due,
-            snoozeCount = session.snoozeCount + 1)
+            snoozeCount = session.snoozeCount + 1, selectedSound = null)
     }
 
     fun wakeCheck(session: RingSession, now: Long): RingSession? {

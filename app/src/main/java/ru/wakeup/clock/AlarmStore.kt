@@ -38,7 +38,8 @@ class AlarmStore(context: Context) {
             val json = values.getJSONObject(it)
             RingSession(json.getString("token"), decodeAlarm(json.getJSONObject("alarm")),
                 json.getLong("startedAt"), json.optBoolean("test"), json.optLong("dueAt"),
-                json.optInt("snoozeCount"), json.optBoolean("isWakeCheck"))
+                json.optInt("snoozeCount"), json.optBoolean("isWakeCheck"),
+                json.optJSONObject("selectedSound")?.let(SoundJson::decode))
         }
     }
 
@@ -53,12 +54,28 @@ class AlarmStore(context: Context) {
         writeSessions(sessions().mapNotNull { if (it.token == token) replacement else it })
     }
     fun activeSession(now: Long = System.currentTimeMillis()): RingSession? = sessions().firstOrNull { it.dueAt <= now }
+
+    /** Freeze the draw and history in one write, before the service starts playback. */
+    fun resolveSound(session: RingSession): RingSession {
+        val all = sessions()
+        val saved = all.firstOrNull { it.token == session.token } ?: return session
+        if (saved.selectedSound != null) return saved
+        val historyKey = "random-last-${saved.alarm.id}"
+        val choice = RandomSounds.pick(saved.alarm, prefs.getString(historyKey, null))
+        val resolved = saved.copy(selectedSound = choice)
+        val editor = prefs.edit().putString("sessions", encodeSessions(all.map { if (it.token == saved.token) resolved else it }).toString())
+        if (saved.alarm.randomSound) editor.putString(historyKey, choice.uri)
+        editor.commit()
+        return resolved
+    }
     private fun writeSessions(sessions: List<RingSession>) {
-        prefs.edit().putString("sessions", JSONArray().apply {
-            sessions.forEach { put(JSONObject().put("token", it.token).put("alarm", encodeAlarm(it.alarm))
-                .put("startedAt", it.startedAt).put("test", it.test).put("dueAt", it.dueAt)
-                .put("snoozeCount", it.snoozeCount).put("isWakeCheck", it.isWakeCheck)) }
-        }.toString()).commit()
+        prefs.edit().putString("sessions", encodeSessions(sessions).toString()).commit()
+    }
+    private fun encodeSessions(sessions: List<RingSession>) = JSONArray().apply {
+        sessions.forEach { put(JSONObject().put("token", it.token).put("alarm", encodeAlarm(it.alarm))
+            .put("startedAt", it.startedAt).put("test", it.test).put("dueAt", it.dueAt)
+            .put("snoozeCount", it.snoozeCount).put("isWakeCheck", it.isWakeCheck)
+            .put("selectedSound", it.selectedSound?.let(SoundJson::encode))) }
     }
 
     // If the process is killed while ringing, the next process restores the original stream volume.
@@ -82,6 +99,7 @@ object AlarmJson {
         .put("label", a.label).put("soundTitle", a.soundTitle).put("vibrate", a.vibrate)
         .put("fadeInSeconds", a.fadeInSeconds).put("snoozeMinutes", a.snoozeMinutes)
         .put("maxSnoozes", a.maxSnoozes).put("wakeCheckMinutes", a.wakeCheckMinutes)
+        .put("randomSound", a.randomSound).put("randomSounds", SoundJson.encodeList(a.randomSounds))
 
     fun decode(j: JSONObject): Alarm {
         val persistence = Persistence.valueOf(j.getString("persistence"))
@@ -95,8 +113,18 @@ object AlarmJson {
             snoozeMinutes = j.optInt("snoozeMinutes").coerceIn(0, 30),
             maxSnoozes = j.optInt("maxSnoozes", 1).coerceIn(1, 3),
             wakeCheckMinutes = j.optInt("wakeCheckMinutes").coerceIn(0, 30),
+            randomSound = j.optBoolean("randomSound"), randomSounds = SoundJson.decodeList(j.optJSONArray("randomSounds")),
         )
     }
+}
+
+object SoundJson {
+    fun encode(sound: SoundChoice) = JSONObject().put("uri", sound.uri).put("title", sound.title)
+    fun decode(json: JSONObject) = SoundChoice(json.optString("uri"), json.optString("title"))
+    fun encodeList(sounds: List<SoundChoice>) = JSONArray().apply { sounds.forEach { put(encode(it)) } }
+    fun decodeList(json: JSONArray?): List<SoundChoice> = if (json == null) emptyList() else
+        (0 until json.length()).mapNotNull { json.optJSONObject(it)?.let(::decode) }
+            .filter { it.uri.isNotBlank() }.distinctBy { it.uri }.take(RandomSounds.MAX_SONGS)
 }
 
 /** Credential-encrypted storage: pairing is only accessible after the user unlocks the phone. */
