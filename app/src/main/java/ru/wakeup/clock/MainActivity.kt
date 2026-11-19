@@ -3,7 +3,10 @@ package ru.wakeup.clock
 import android.Manifest
 import android.app.AlertDialog
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -24,6 +27,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.journeyapps.barcodescanner.ScanContract
@@ -47,8 +51,14 @@ class MainActivity : ComponentActivity() {
     private var undoLabel: TextView? = null
     private var deletedAlarms: List<Alarm> = emptyList()
     private var undoExpiresAt = 0L
+    private var cancelCheckToken: String? = null
+    private var orphanChecks: LinearLayout? = null
     private val undoHandler = Handler(Looper.getMainLooper())
     private val hideUndo = Runnable { refreshUndoBar() }
+    private val refreshChecks = Runnable { render() }
+    private val changed = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) { render() }
+    }
     private val normalOnlyViews = mutableListOf<View>()
     private val selectionBack = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() { selectionMode?.finish() }
@@ -105,6 +115,12 @@ class MainActivity : ComponentActivity() {
         }
         render()
     }
+    private val cancelCheckScanner = registerForActivityResult(ScanContract()) { result ->
+        val token = cancelCheckToken
+        cancelCheckToken = null
+        if (token != null && result.contents != null) finishCancelCheck(token, result.contents)
+        else render()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,6 +130,7 @@ class MainActivity : ComponentActivity() {
         savedInstanceState?.getIntArray("selectedIds")?.let { selectedIds.addAll(it.toList()) }
         deletedAlarms = savedInstanceState?.getStringArrayList("deletedAlarms")?.map { AlarmJson.decode(JSONObject(it)) }.orEmpty()
         undoExpiresAt = savedInstanceState?.getLong("undoExpiresAt") ?: 0L
+        cancelCheckToken = savedInstanceState?.getString("cancelCheckToken")
         onBackPressedDispatcher.addCallback(this, selectionBack)
         AlarmNotifications.channel(this)
     }
@@ -124,7 +141,15 @@ class MainActivity : ComponentActivity() {
         outState.putIntArray("selectedIds", selectedIds.toIntArray())
         outState.putStringArrayList("deletedAlarms", ArrayList(deletedAlarms.map { AlarmJson.encode(it).toString() }))
         outState.putLong("undoExpiresAt", undoExpiresAt)
+        outState.putString("cancelCheckToken", cancelCheckToken)
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(this, changed, IntentFilter(RingService.STATE_CHANGED).apply {
+            addAction(Intent.ACTION_TIME_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onResume() {
@@ -137,11 +162,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         undoHandler.removeCallbacks(hideUndo)
+        undoHandler.removeCallbacks(refreshChecks)
+        unregisterReceiver(changed)
         super.onStop()
     }
 
     override fun onDestroy() {
         undoHandler.removeCallbacks(hideUndo)
+        undoHandler.removeCallbacks(refreshChecks)
         super.onDestroy()
     }
 
@@ -159,8 +187,8 @@ class MainActivity : ComponentActivity() {
         root.addView(Ui.title(this, "WakeUP Clock").also { normalOnlyViews.add(it) })
         root.addView(Ui.text(this, "Утро начинается с одного шага.", 16f, true).also { normalOnlyViews.add(it) })
         if (store.activeSession() != null) root.addView(Ui.button(this, "Вернуться к звонку", true) { startActivity(Intent(this, RingActivity::class.java)) })
-        store.sessions().filter { it.dueAt > System.currentTimeMillis() }.sortedBy { it.dueAt }.forEach {
-            root.addView(Ui.text(this, "${if (it.isWakeCheck) "Проверка подъёма" else "Отложенный звонок"} · ${nextLabel(it.dueAt)}", 15f))
+        store.sessions().filter { !it.isWakeCheck && it.dueAt > System.currentTimeMillis() }.sortedBy { it.dueAt }.forEach {
+            root.addView(Ui.text(this, "Отложенный звонок · ${nextLabel(it.dueAt)}", 15f))
         }
         val complete = ready()
         val expanded = permissionsExpanded ?: !complete
@@ -213,7 +241,7 @@ class MainActivity : ComponentActivity() {
                     if (!AlarmScheduler.schedule(this, alarm.copy(enabled = enabled))) toast("Нет разрешения на точный будильник")
                 }
                 refreshAlarms()
-            })
+            }, cancelCheck = { requestCancelCheck(it) })
         val list = RecyclerView(this).apply {
             id = android.R.id.list; layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = alarmAdapter; isNestedScrollingEnabled = false; itemAnimator = null
@@ -221,6 +249,9 @@ class MainActivity : ComponentActivity() {
         alarmAdapter!!.update(alarms, selecting, selectedIds)
         alarmAdapter!!.attachSwipe(list) { deleteAlarms(setOf(it.id)) }
         root.addView(list, LinearLayout.LayoutParams(-1, -2))
+        orphanChecks = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(orphanChecks)
+        normalOnlyViews.add(orphanChecks!!)
         refreshAlarms()
         root.addView(Ui.button(this, "＋ Добавить будильник", true) {
             val existingIds = store.alarms().map { it.id }.toSet()
@@ -262,13 +293,56 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshAlarms() {
-        val alarms = AlarmStore(this).alarms().sortedWith(compareBy({ it.hour }, { it.minute }))
+        val store = AlarmStore(this)
+        val alarms = store.alarms().sortedWith(compareBy({ it.hour }, { it.minute }))
+        val checks = store.sessions().filter { it.isWakeCheck && it.dueAt > System.currentTimeMillis() }.sortedBy { it.dueAt }
         selectedIds.retainAll(alarms.map { it.id }.toSet())
         if (alarms.isEmpty()) { selectionMode?.finish(); selecting = false }
-        alarmAdapter?.update(alarms, selecting, selectedIds)
-        emptyLabel?.visibility = if (alarms.isEmpty()) View.VISIBLE else View.GONE
+        alarmAdapter?.update(alarms, selecting, selectedIds, checks)
+        orphanChecks?.removeAllViews()
+        checks.filter { check -> alarms.none { it.id == check.alarm.id } }.groupBy { it.alarm.id }.forEach { (_, sessions) ->
+            orphanChecks?.addView(Ui.card(this).apply {
+                addView(Ui.text(this@MainActivity, Ui.time(sessions.first().alarm), 40f))
+                addView(Ui.text(this@MainActivity, sessions.first().alarm.label.ifBlank { "Будильник" }, 15f, true))
+                sessions.forEach { addView(WakeCheckUi.row(this@MainActivity, it) { session -> requestCancelCheck(session) }) }
+            })
+        }
+        emptyLabel?.visibility = if (alarms.isEmpty() && checks.isEmpty()) View.VISIBLE else View.GONE
         selectButton?.visibility = if (alarms.isEmpty()) View.GONE else View.VISIBLE
         selectionMode?.invalidate()
+        scheduleCheckRefresh(checks)
+    }
+
+    private fun scheduleCheckRefresh(checks: List<RingSession>) {
+        undoHandler.removeCallbacks(refreshChecks)
+        val now = System.currentTimeMillis()
+        val next = checks.flatMap { listOfNotNull(FollowUpRules.earlyCancelAt(it), it.dueAt) }.filter { it > now }.minOrNull()
+        if (next != null) undoHandler.postDelayed(refreshChecks, next - now)
+    }
+
+    private fun requestCancelCheck(session: RingSession) {
+        val saved = AlarmStore(this).sessions().firstOrNull { it.token == session.token }
+        if (saved == null || !FollowUpRules.canCancelEarly(saved, System.currentTimeMillis())) {
+            toast("Сейчас эту проверку нельзя отменить заранее"); render(); return
+        }
+        if (saved.alarm.dismissMode == DismissMode.QR) {
+            if (StationStore(this).get() == null) { toast("Для отмены нужен QR связанного браузера"); return }
+            cancelCheckToken = saved.token
+            cancelCheckScanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setPrompt("Свежий QR с ноутбука для отмены проверки").setBeepEnabled(false).setOrientationLocked(false))
+        } else finishCancelCheck(saved.token)
+    }
+
+    private fun finishCancelCheck(token: String, qr: String? = null) {
+        if (RingActions.cancelWakeCheck(this, token, qr)) toast("Проверка отменена. Будильник по расписанию сохранён")
+        else {
+            val session = AlarmStore(this).sessions().firstOrNull { it.token == token }
+            if (session != null && session.dueAt <= System.currentTimeMillis()) {
+                toast("Проверка уже началась. Отключи её на экране звонка")
+                startActivity(Intent(this, RingActivity::class.java))
+            } else toast("Не удалось отменить проверку. Нужен свежий QR связанного браузера и доступное время отмены")
+        }
+        render()
     }
 
     private fun deleteAlarms(ids: Set<Int>) {

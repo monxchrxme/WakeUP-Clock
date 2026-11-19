@@ -20,24 +20,27 @@ class AlarmListAdapter(
     private val click: (Alarm) -> Unit,
     private val longClick: (Alarm) -> Unit,
     private val toggle: (Alarm, Boolean) -> Unit,
+    private val cancelCheck: (RingSession) -> Unit,
 ) : RecyclerView.Adapter<AlarmListAdapter.Holder>() {
     var alarms: List<Alarm> = emptyList()
         private set
     var selecting = false
         private set
     private var selected: Set<Int> = emptySet()
+    private var wakeChecks: List<RingSession> = emptyList()
 
     init { setHasStableIds(true) }
     override fun getItemId(position: Int) = alarms[position].id.toLong()
     override fun getItemCount() = alarms.size
 
-    fun update(alarms: List<Alarm>, selecting: Boolean, selected: Set<Int>) {
+    fun update(alarms: List<Alarm>, selecting: Boolean, selected: Set<Int>, wakeChecks: List<RingSession> = this.wakeChecks) {
         this.alarms = alarms; this.selecting = selecting; this.selected = selected.toSet()
+        this.wakeChecks = wakeChecks
         notifyDataSetChanged()
     }
 
     class Holder(val card: LinearLayout, val check: CheckBox, val time: TextView, val detail: TextView,
-                 val mode: TextView, val next: TextView, val enabled: Switch) : RecyclerView.ViewHolder(card) {
+                 val mode: TextView, val next: TextView, val enabled: Switch, val checks: LinearLayout) : RecyclerView.ViewHolder(card) {
         var alarm: Alarm? = null
     }
 
@@ -71,7 +74,8 @@ class AlarmListAdapter(
         val mode = Ui.text(activity, "", 14f, true)
         val next = Ui.text(activity, "", 13f, true)
         listOf(detail, mode, next).forEach { it.setPadding(0, Ui.dp(activity, 2), 0, Ui.dp(activity, 2)) }
-        body.addView(time); body.addView(detail); body.addView(mode); body.addView(next)
+        val checks = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        body.addView(time); body.addView(detail); body.addView(checks); body.addView(mode); body.addView(next)
         val enabled = Switch(activity).apply {
             minimumWidth = Ui.dp(activity, 48)
             var startX = 0f
@@ -94,7 +98,7 @@ class AlarmListAdapter(
         card.addView(check)
         card.addView(body, LinearLayout.LayoutParams(0, -2, 1f))
         card.addView(enabled)
-        return Holder(card, check, time, detail, mode, next, enabled)
+        return Holder(card, check, time, detail, mode, next, enabled, checks)
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
@@ -111,6 +115,11 @@ class AlarmListAdapter(
         holder.time.text = Ui.time(alarm)
         holder.time.setTextColor(if (alarm.enabled) Ui.INK else Ui.MUTED)
         holder.detail.text = "${alarm.label.ifBlank { "Будильник" }} · ${Ui.daysLabel(alarm.days)}"
+        holder.checks.removeAllViews()
+        holder.checks.visibility = if (selecting) View.GONE else View.VISIBLE
+        wakeChecks.filter { it.alarm.id == alarm.id }.forEach {
+            holder.checks.addView(WakeCheckUi.row(activity, it, cancelCheck))
+        }
         holder.mode.text = "${if (alarm.dismissMode == DismissMode.QR) "QR с ноутбука" else "Кнопка"} · ${alarm.volume}%${if (alarm.randomSound) " · Случайная песня" else ""}"
         holder.next.visibility = if (alarm.enabled && alarm.scheduledAt > 0) View.VISIBLE else View.GONE
         if (alarm.enabled && alarm.scheduledAt > 0) holder.next.text = "Следующий: ${java.time.Instant.ofEpochMilli(alarm.scheduledAt)

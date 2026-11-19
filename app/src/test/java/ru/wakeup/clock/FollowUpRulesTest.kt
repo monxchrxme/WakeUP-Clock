@@ -65,4 +65,33 @@ class FollowUpRulesTest {
             assertNull(next.selectedSound)
         }
     }
+    @Test fun twentyMinuteCheckCanBeCancelledFromTenMinutesUntilItStarts() {
+        val check = FollowUpRules.wakeCheck(session.copy(alarm = alarm.copy(wakeCheckMinutes = 20)), now)!!
+        assertEquals(now + 600_000L, FollowUpRules.earlyCancelAt(check))
+        assertFalse(FollowUpRules.canCancelEarly(check, now + 599_999L))
+        assertTrue(FollowUpRules.canCancelEarly(check, now + 600_000L))
+        assertTrue(FollowUpRules.canCancelEarly(check, check.dueAt - 1))
+        assertFalse(FollowUpRules.canCancelEarly(check, check.dueAt))
+    }
+    @Test fun ordinarySnoozesAndTestSessionsCannotBeCancelledByThisRule() {
+        assertNull(FollowUpRules.earlyCancelAt(FollowUpRules.snooze(session, now)!!))
+        val check = FollowUpRules.wakeCheck(session, now)!!
+        assertNull(FollowUpRules.earlyCancelAt(check.copy(test = true)))
+        assertNull(FollowUpRules.earlyCancelAt(check.copy(alarm = alarm.copy(wakeCheckMinutes = 0))))
+        assertFalse(FollowUpRules.canCancelEarly(session, now))
+    }
+    @Test fun fiveMinuteCheckUsesTwoAndAHalfMinutesWithoutRounding() {
+        val check = FollowUpRules.wakeCheck(session.copy(alarm = alarm.copy(wakeCheckMinutes = 5)), now)!!
+        assertEquals(now + 150_000L, FollowUpRules.earlyCancelAt(check))
+        assertFalse(FollowUpRules.canCancelEarly(check, now + 149_999L))
+        assertTrue(FollowUpRules.canCancelEarly(check, now + 150_000L))
+    }
+    @Test fun snoozedWakeCheckUsesHalfOfItsOwnDelayAndKeepsItsSnapshot() {
+        val check = FollowUpRules.wakeCheck(session.copy(alarm = alarm.copy(wakeCheckMinutes = 20, snoozeMinutes = 5)), now)!!
+        val postponed = FollowUpRules.snooze(check, check.dueAt)!!
+        assertEquals(check.dueAt + 150_000L, FollowUpRules.earlyCancelAt(postponed))
+        assertFalse(FollowUpRules.canCancelEarly(postponed, check.dueAt + 149_999L))
+        assertTrue(FollowUpRules.canCancelEarly(postponed, check.dueAt + 150_000L))
+        assertEquals(20, postponed.alarm.wakeCheckMinutes)
+    }
 }

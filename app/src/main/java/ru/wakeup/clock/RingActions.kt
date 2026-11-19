@@ -4,6 +4,23 @@ import android.content.Context
 import android.content.Intent
 
 object RingActions {
+    /** Recheck both the time window and the original dismissal mode after the scanner returns. */
+    fun cancelWakeCheck(context: Context, token: String, qr: String? = null): Boolean {
+        val store = AlarmStore(context)
+        val session = store.sessions().firstOrNull { it.token == token } ?: return false
+        val now = System.currentTimeMillis()
+        if (!FollowUpRules.canCancelEarly(session, now)) return false
+        if (session.alarm.dismissMode == DismissMode.QR) {
+            val station = StationStore(context).get() ?: return false
+            if (qr == null || !QrProtocol.verify(qr, station, now, FollowUpRules.earlyCancelAt(session)!!)) return false
+        }
+        // Remove first so an already queued alarm broadcast cannot resurrect this check.
+        store.removeSession(token)
+        AlarmScheduler.cancelSession(context, session)
+        context.sendBroadcast(Intent(RingService.STATE_CHANGED).setPackage(context.packageName))
+        return true
+    }
+
     /** Persist the follow-up before stopping sound, so process death cannot lose it. */
     fun snooze(context: Context, session: RingSession): Boolean {
         val replacement = FollowUpRules.snooze(session, System.currentTimeMillis()) ?: return false

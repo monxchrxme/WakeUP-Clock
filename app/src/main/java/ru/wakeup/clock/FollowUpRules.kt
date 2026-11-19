@@ -4,6 +4,17 @@ import java.util.UUID
 
 /** The follow-up uses the original alarm snapshot, even if its saved settings are edited later. */
 object FollowUpRules {
+    /** Infer the waiting interval from the immutable snapshot, including checks saved by older versions. */
+    fun earlyCancelAt(session: RingSession): Long? {
+        if (session.test || !session.isWakeCheck || session.dueAt <= 0) return null
+        val minutes = if (session.snoozeCount > 0) session.alarm.snoozeMinutes else session.alarm.wakeCheckMinutes
+        if (minutes <= 0) return null
+        return session.dueAt - minutes * 30_000L
+    }
+
+    fun canCancelEarly(session: RingSession, now: Long): Boolean =
+        earlyCancelAt(session)?.let { now >= it && now < session.dueAt } ?: false
+
     fun canSnooze(session: RingSession): Boolean = !session.test &&
         session.alarm.snoozeMinutes > 0 && session.snoozeCount < session.alarm.maxSnoozes
 
