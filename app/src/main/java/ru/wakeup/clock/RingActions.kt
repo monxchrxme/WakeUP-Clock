@@ -28,14 +28,23 @@ object RingActions {
     }
 
     fun dismiss(context: Context, session: RingSession): Boolean = transition(context, session,
-        FollowUpRules.wakeCheck(session, System.currentTimeMillis()))
+        FollowUpRules.wakeCheck(session, System.currentTimeMillis()), allowWaitingAutomatic = true)
 
-    private fun transition(context: Context, session: RingSession, replacement: RingSession?): Boolean {
+    fun automaticRepeat(context: Context, session: RingSession, elapsedMillis: Long): Boolean {
+        val saved = AlarmStore(context).activeSession()?.takeIf { it.token == session.token } ?: return false
+        val replacement = AutoRepeatRules.next(saved, System.currentTimeMillis(), elapsedMillis) ?: return false
+        return transition(context, saved, replacement)
+    }
+
+    private fun transition(context: Context, session: RingSession, replacement: RingSession?, allowWaitingAutomatic: Boolean = false): Boolean {
         val store = AlarmStore(context)
-        if (store.activeSession()?.token != session.token) return false
+        val saved = store.sessions().firstOrNull { it.token == session.token } ?: return false
+        if (store.activeSession()?.token != session.token &&
+            !(allowWaitingAutomatic && saved.automaticRepeat && saved.dueAt > System.currentTimeMillis())) return false
         if (replacement != null && !AlarmScheduler.scheduleSession(context, replacement)) return false
         store.replaceSession(session.token, replacement)
-        AlarmScheduler.cancelSession(context, session)
+        // A recurring automatic pause updates the same PendingIntent; cancelling it would cancel the new due time.
+        if (replacement?.token != session.token) AlarmScheduler.cancelSession(context, session)
         if (store.activeSession() == null) context.stopService(Intent(context, RingService::class.java))
         else RingService.start(context)
         context.sendBroadcast(Intent(RingService.STATE_CHANGED).setPackage(context.packageName))

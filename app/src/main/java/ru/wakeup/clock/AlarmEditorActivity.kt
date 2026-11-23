@@ -211,6 +211,35 @@ class AlarmEditorActivity : ComponentActivity() {
                 })
             }, LinearLayout.LayoutParams(-1, dp(58)))
         }
+        section("РАЗДРАЖЕНИЕ")
+        group {
+            toggle("Раздражение", draft.irritationMinutes > 0) {
+                draft = draft.copy(irritationMinutes = if (it) 1 else 0); render()
+            }
+            if (draft.irritationMinutes > 0) row("После начала звонка", "Через ${draft.irritationMinutes} мин") { chooseIrritationDelay() }
+        }
+        footer(if (draft.irritationMinutes > 0)
+            "Через ${draft.irritationMinutes} мин поверх песни начнёт играть второй звук. Для одной песни — её копия со случайного места; для набора — другая песня. На проверке подъёма — через ${draft.irritationMinutes + 5} мин. Отсрочка и отключение останавливают оба звука."
+            else "Добавляет второй звук поверх основной песни, чтобы было сложнее остаться в кровати. Задержка настраивается с шагом в одну минуту.")
+        section("АВТОПОВТОР")
+        group {
+            toggle("Автоповтор", draft.autoRepeatMinutes > 0) {
+                draft = draft.copy(autoRepeatMinutes = if (it) 5 else 0); render()
+            }
+            if (draft.autoRepeatMinutes > 0) {
+                row("Длительность звонка", "${draft.ringLimitMinutes} мин") {
+                    chooseMinuteValue("Длительность звонка", draft.ringLimitMinutes, 1, "Длительность звонка в минутах") {
+                        draft = draft.copy(ringLimitMinutes = it); render()
+                    }
+                }
+                row("Пауза перед повтором", "${draft.autoRepeatMinutes} мин") {
+                    chooseMinuteValue("Пауза перед повтором", draft.autoRepeatMinutes, 5, "Пауза автоповтора в минутах") {
+                        draft = draft.copy(autoRepeatMinutes = it); render()
+                    }
+                }
+            }
+        }
+        footer("Если не подтвердить подъём, звук сам остановится после выбранного времени и включится снова после паузы. Повторы продолжаются до отключения по QR или кнопкой. Проверка подъёма назначается только после такого подтверждения.")
         section("ПОВТОРНЫЙ ЗВОНОК")
         group {
             toggle("Отложить", draft.snoozeMinutes > 0) { draft = draft.copy(snoozeMinutes = if (it) 10 else 0); render() }
@@ -359,6 +388,27 @@ class AlarmEditorActivity : ComponentActivity() {
     private fun chooseMinutes(title: String, selected: Int, action: (Int) -> Unit) {
         val values = listOf(5, 10, 15, 20, 30)
         choice(title, values.map { "$it минут" }, values.indexOf(selected)) { action(values[it]) }
+    }
+
+    private fun chooseIrritationDelay() {
+        chooseMinuteValue("Через сколько минут?", draft.irritationMinutes, 1, "Задержка раздражения в минутах") {
+            draft = draft.copy(irritationMinutes = it); render()
+        }
+    }
+
+    private fun chooseMinuteValue(title: String, selected: Int, step: Int, description: String, action: (Int) -> Unit) {
+        val picker = NumberPicker(this).apply {
+            minValue = 1; maxValue = 60 / step; value = (selected / step).coerceIn(1, maxValue)
+            if (step == 1) setFormatter { it.toString() }
+            else displayedValues = (1..maxValue).map { (it * step).toString() }.toTypedArray()
+            wrapSelectorWheel = false
+            contentDescription = description
+        }
+        val box = LinearLayout(this).apply { gravity = Gravity.CENTER; addView(picker) }
+        AlertDialog.Builder(this).setTitle(title).setView(box)
+            .setPositiveButton("Готово") { _, _ ->
+                picker.clearFocus(); action(picker.value * step)
+            }.setNegativeButton("Отмена", null).show()
     }
 
     private fun soundName(): String = draft.soundTitle.ifBlank {

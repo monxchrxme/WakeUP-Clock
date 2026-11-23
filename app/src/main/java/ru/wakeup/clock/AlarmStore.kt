@@ -39,7 +39,7 @@ class AlarmStore(context: Context) {
             RingSession(json.getString("token"), decodeAlarm(json.getJSONObject("alarm")),
                 json.getLong("startedAt"), json.optBoolean("test"), json.optLong("dueAt"),
                 json.optInt("snoozeCount"), json.optBoolean("isWakeCheck"),
-                json.optJSONObject("selectedSound")?.let(SoundJson::decode))
+                json.optJSONObject("selectedSound")?.let(SoundJson::decode), json.optLong("ringingSince"), json.optBoolean("automaticRepeat"))
         }
     }
 
@@ -54,6 +54,15 @@ class AlarmStore(context: Context) {
         writeSessions(sessions().mapNotNull { if (it.token == token) replacement else it })
     }
     fun activeSession(now: Long = System.currentTimeMillis()): RingSession? = sessions().firstOrNull { it.dueAt <= now }
+
+    fun beginRinging(session: RingSession, now: Long = System.currentTimeMillis()): RingSession {
+        val all = sessions()
+        val saved = all.firstOrNull { it.token == session.token } ?: return session
+        if (saved.ringingSince > 0 || all.firstOrNull { it.dueAt <= now }?.token != saved.token) return saved
+        val started = saved.copy(ringingSince = now)
+        writeSessions(all.map { if (it.token == saved.token) started else it })
+        return started
+    }
 
     /** Freeze the draw and history in one write, before the service starts playback. */
     fun resolveSound(session: RingSession): RingSession {
@@ -75,7 +84,8 @@ class AlarmStore(context: Context) {
         sessions.forEach { put(JSONObject().put("token", it.token).put("alarm", encodeAlarm(it.alarm))
             .put("startedAt", it.startedAt).put("test", it.test).put("dueAt", it.dueAt)
             .put("snoozeCount", it.snoozeCount).put("isWakeCheck", it.isWakeCheck)
-            .put("selectedSound", it.selectedSound?.let(SoundJson::encode))) }
+            .put("selectedSound", it.selectedSound?.let(SoundJson::encode)).put("ringingSince", it.ringingSince)
+            .put("automaticRepeat", it.automaticRepeat)) }
     }
 
     // If the process is killed while ringing, the next process restores the original stream volume.
@@ -84,6 +94,8 @@ class AlarmStore(context: Context) {
     fun forgetVolume() { prefs.edit().remove("originalVolume").commit() }
     fun soundFallback() = prefs.getBoolean("soundFallback", false)
     fun setSoundFallback(value: Boolean) { prefs.edit().putBoolean("soundFallback", value).apply() }
+    fun irritationActive() = prefs.getBoolean("irritationActive", false)
+    fun setIrritationActive(value: Boolean) { prefs.edit().putBoolean("irritationActive", value).apply() }
 
     private fun array(key: String): JSONArray = JSONArray(prefs.getString(key, "[]"))
 
@@ -100,6 +112,8 @@ object AlarmJson {
         .put("fadeInSeconds", a.fadeInSeconds).put("snoozeMinutes", a.snoozeMinutes)
         .put("maxSnoozes", a.maxSnoozes).put("wakeCheckMinutes", a.wakeCheckMinutes)
         .put("randomSound", a.randomSound).put("randomSounds", SoundJson.encodeList(a.randomSounds))
+        .put("irritationMinutes", a.irritationMinutes)
+        .put("autoRepeatMinutes", a.autoRepeatMinutes).put("ringLimitMinutes", a.ringLimitMinutes)
 
     fun decode(j: JSONObject): Alarm {
         val persistence = Persistence.valueOf(j.getString("persistence"))
@@ -114,6 +128,9 @@ object AlarmJson {
             maxSnoozes = j.optInt("maxSnoozes", 1).coerceIn(1, 3),
             wakeCheckMinutes = j.optInt("wakeCheckMinutes").coerceIn(0, 30),
             randomSound = j.optBoolean("randomSound"), randomSounds = SoundJson.decodeList(j.optJSONArray("randomSounds")),
+            irritationMinutes = j.optInt("irritationMinutes").coerceIn(0, IrritationRules.MAX_MINUTES),
+            autoRepeatMinutes = j.optInt("autoRepeatMinutes").let { if (it <= 0) 0 else it.coerceIn(5, AutoRepeatRules.MAX_MINUTES) / 5 * 5 },
+            ringLimitMinutes = j.optInt("ringLimitMinutes", 10).coerceIn(1, AutoRepeatRules.MAX_MINUTES),
         )
     }
 }

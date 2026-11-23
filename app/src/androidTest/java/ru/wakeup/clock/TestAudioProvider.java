@@ -31,6 +31,7 @@ public final class TestAudioProvider extends ContentProvider {
                     if ("invalid".equals(uri.getLastPathSegment())) output.write("not an audio file".getBytes());
                     else try (InputStream input = getContext().getAssets().open(
                             "other-tone.wav".equals(uri.getLastPathSegment()) ? "other-tone.wav" :
+                            "long-tone.wav".equals(uri.getLastPathSegment()) ? "long-tone.wav" :
                             "regular-tone.wav".equals(uri.getLastPathSegment()) ? "regular-tone.wav" : "custom-tone.wav")) {
                         byte[] buffer = new byte[4096];
                         int read;

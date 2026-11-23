@@ -188,7 +188,10 @@ class MainActivity : ComponentActivity() {
         root.addView(Ui.text(this, "Утро начинается с одного шага.", 16f, true).also { normalOnlyViews.add(it) })
         if (store.activeSession() != null) root.addView(Ui.button(this, "Вернуться к звонку", true) { startActivity(Intent(this, RingActivity::class.java)) })
         store.sessions().filter { !it.isWakeCheck && it.dueAt > System.currentTimeMillis() }.sortedBy { it.dueAt }.forEach {
-            root.addView(Ui.text(this, "Отложенный звонок · ${nextLabel(it.dueAt)}", 15f))
+            root.addView(Ui.text(this, "${if (it.automaticRepeat) "Автоповтор" else "Отложенный звонок"} · ${nextLabel(it.dueAt)}", 15f))
+            if (it.automaticRepeat) root.addView(Ui.button(this, "Я уже встал · подтвердить") {
+                startActivity(Intent(this, RingActivity::class.java).putExtra("sessionToken", it.token))
+            })
         }
         val complete = ready()
         val expanded = permissionsExpanded ?: !complete

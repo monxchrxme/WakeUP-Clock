@@ -94,4 +94,13 @@ class FollowUpRulesTest {
         assertTrue(FollowUpRules.canCancelEarly(postponed, check.dueAt + 150_000L))
         assertEquals(20, postponed.alarm.wakeCheckMinutes)
     }
+    @Test fun followUpsKeepIrritationSettingButBeginAFreshRingingClock() {
+        val original = session.copy(alarm = alarm.copy(irritationMinutes = 3), ringingSince = now - 60_000)
+        val snoozed = FollowUpRules.snooze(original, now)!!
+        val check = FollowUpRules.wakeCheck(original, now)!!
+        assertEquals(0L, snoozed.ringingSince)
+        assertEquals(0L, check.ringingSince)
+        assertEquals(3, IrritationRules.delayMinutes(snoozed))
+        assertEquals(8, IrritationRules.delayMinutes(check))
+    }
 }

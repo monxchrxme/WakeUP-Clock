@@ -27,6 +27,9 @@ class AlarmJsonTest {
         assertEquals(0, alarm.wakeCheckMinutes)
         assertFalse(alarm.randomSound)
         assertTrue(alarm.randomSounds.isEmpty())
+        assertEquals(0, alarm.irritationMinutes)
+        assertEquals(0, alarm.autoRepeatMinutes)
+        assertEquals(10, alarm.ringLimitMinutes)
     }
     @Test fun updatePreservesNormalAlarmSoundBehaviour() {
         val alarm = AlarmJson.decode(legacy("NORMAL"))
@@ -45,5 +48,17 @@ class AlarmJsonTest {
         assertEquals(alarm, AlarmJson.decode(JSONObject(AlarmJson.encode(alarm).toString())))
         val disabled = alarm.copy(randomSound = false)
         assertEquals(disabled, AlarmJson.decode(JSONObject(AlarmJson.encode(disabled).toString())))
+    }
+    @Test fun irritationDelaySurvivesStorageAndInvalidValuesAreBounded() {
+        val alarm = Alarm(44, irritationMinutes = 37)
+        assertEquals(alarm, AlarmJson.decode(AlarmJson.encode(alarm)))
+        assertEquals(0, AlarmJson.decode(AlarmJson.encode(alarm).put("irritationMinutes", -1)).irritationMinutes)
+        assertEquals(60, AlarmJson.decode(AlarmJson.encode(alarm).put("irritationMinutes", 1000)).irritationMinutes)
+    }
+    @Test fun automaticRepeatSettingsSurviveAndRespectMinuteSteps() {
+        val alarm = Alarm(45, autoRepeatMinutes = 25, ringLimitMinutes = 17)
+        assertEquals(alarm, AlarmJson.decode(AlarmJson.encode(alarm)))
+        assertEquals(55, AlarmJson.decode(AlarmJson.encode(alarm).put("autoRepeatMinutes", 57)).autoRepeatMinutes)
+        assertEquals(1, AlarmJson.decode(AlarmJson.encode(alarm).put("ringLimitMinutes", 0)).ringLimitMinutes)
     }
 }

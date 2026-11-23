@@ -22,7 +22,9 @@ class RingActivity : ComponentActivity() {
     private val scanner = registerForActivityResult(ScanContract()) { result ->
         val token = scanningToken
         scanningToken = null
-        val session = AlarmStore(this).activeSession()
+        val store = AlarmStore(this)
+        val activeToken = store.activeSession()?.token
+        val session = store.sessions().firstOrNull { it.token == token && (it.token == activeToken || it.automaticRepeat) }
         if (result.contents != null && session != null && session.token == token) {
             val station = StationStore(this).get()
             if (station != null && QrProtocol.verify(result.contents, station, System.currentTimeMillis(), session.startedAt))
@@ -42,7 +44,10 @@ class RingActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(true); setTurnScreenOn(true) }
         else @Suppress("DEPRECATION") window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { Toast.makeText(this@RingActivity, "Будильник продолжает звонить", Toast.LENGTH_SHORT).show() }
+            override fun handleOnBackPressed() {
+                if (AlarmStore(this@RingActivity).activeSession() == null) finish()
+                else Toast.makeText(this@RingActivity, "Будильник продолжает звонить", Toast.LENGTH_SHORT).show()
+            }
         })
     }
 
@@ -58,21 +63,29 @@ class RingActivity : ComponentActivity() {
         render()
     }
     override fun onStop() { unregisterReceiver(changed); super.onStop() }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); render() }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); render() }
 
     private fun render() {
-        val session = AlarmStore(this).activeSession() ?: run { finish(); return }
+        val store = AlarmStore(this)
+        val all = store.sessions()
+        val requested = intent.getStringExtra("sessionToken")
+        val session = all.firstOrNull { it.token == requested && it.automaticRepeat } ?: store.activeSession()
+            ?: all.firstOrNull { it.automaticRepeat } ?: run { finish(); return }
+        val waiting = store.activeSession()?.token != session.token
         val root = Ui.root(this)
-        root.addView(Ui.text(this, "WakeUP Clock · ${if (session.test) "Проверка" else if (session.isWakeCheck) "Проверка подъёма" else "Будильник"}", 16f, true))
+        root.addView(Ui.text(this, "WakeUP Clock · ${if (waiting) "Ожидание автоповтора" else if (session.test) "Проверка" else if (session.isWakeCheck) "Проверка подъёма" else if (session.automaticRepeat) "Повторный звонок" else "Будильник"}", 16f, true))
         root.addView(Ui.text(this, Ui.time(session.alarm), 76f))
         root.addView(Ui.title(this, session.alarm.label.ifBlank { if (session.isWakeCheck) "Ты уже встал?" else "Пора вставать." }))
         if (session.alarm.randomSound) session.selectedSound?.title?.takeIf { it.isNotBlank() }?.let {
             root.addView(Ui.text(this, "Сейчас играет: $it", 16f, true))
         }
-        if (AlarmStore(this).soundFallback()) root.addView(Ui.text(this,
+        if (!waiting && AlarmStore(this).irritationActive()) root.addView(Ui.text(this,
+            "Раздражение · две мелодии одновременно", 16f).apply { setTextColor(Ui.ORANGE) })
+        if (!waiting && AlarmStore(this).soundFallback()) root.addView(Ui.text(this,
             "Выбранная мелодия недоступна. Играет запасной сигнал — после звонка выбери мелодию заново.", 16f).apply { setTextColor(Ui.RED) })
+        if (waiting) root.addView(Ui.text(this, "Звук на паузе. Подтверди подъём сейчас, чтобы отменить повтор.", 18f, true))
         root.addView(Ui.text(this, if (session.alarm.dismissMode == DismissMode.QR)
-            "Дойди до ноутбука, открой сайт и отсканируй свежий QR-код. Звук продолжится во время сканирования."
+            "Дойди до ноутбука, открой сайт и отсканируй свежий QR-код. ${if (waiting) "Подтверждение пройдёт без звука." else "Звук продолжится во время сканирования."}"
             else "Отключи будильник, когда будешь готов начать день.", 18f, true))
 
         if (session.alarm.dismissMode == DismissMode.QR) {
@@ -80,7 +93,7 @@ class RingActivity : ComponentActivity() {
             root.addView(Ui.text(this, "Чужой код и экран привязки не отключат звонок.", 14f, true))
         } else root.addView(Ui.button(this, "Я встал · отключить", true) { dismiss(session) })
         if (session.test) root.addView(Ui.button(this, "Остановить проверку") { dismiss(session) })
-        if (FollowUpRules.canSnooze(session)) root.addView(Ui.button(this, "Отложить на ${session.alarm.snoozeMinutes} мин") {
+        if (!waiting && FollowUpRules.canSnooze(session)) root.addView(Ui.button(this, "Отложить на ${session.alarm.snoozeMinutes} мин") {
             AlertDialog.Builder(this).setTitle("Отложить звонок?")
                 .setMessage("Ещё доступно отсрочек: ${session.alarm.maxSnoozes - session.snoozeCount}. Следующий звонок через ${session.alarm.snoozeMinutes} минут.")
                 .setPositiveButton("Отложить") { _, _ ->
@@ -90,6 +103,8 @@ class RingActivity : ComponentActivity() {
         })
         if (!session.test && !session.isWakeCheck && session.alarm.wakeCheckMinutes > 0)
             root.addView(Ui.text(this, "После отключения — ещё один звонок через ${session.alarm.wakeCheckMinutes} минут.", 15f, true))
+        if (!session.test && session.alarm.autoRepeatMinutes > 0) root.addView(Ui.text(this,
+            "Автоповтор: после ${session.alarm.ringLimitMinutes} мин звонка — пауза ${session.alarm.autoRepeatMinutes} мин.", 15f, true))
         val count = AlarmStore(this).sessions().count { it.dueAt <= System.currentTimeMillis() }
         if (count > 1) root.addView(Ui.text(this, "Ещё в очереди: ${count - 1}", 14f, true))
     }

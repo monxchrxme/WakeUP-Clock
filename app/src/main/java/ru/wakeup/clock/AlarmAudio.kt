@@ -29,7 +29,7 @@ object AlarmAudio {
         }
     }
 
-    fun start(context: Context, sound: String): AlarmPlayback {
+    fun start(context: Context, sound: String, startAt: ((duration: Int) -> Int)? = null): AlarmPlayback {
         val uris = listOfNotNull(
             sound.takeIf { it.isNotBlank() }?.let(Uri::parse),
             RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM),
@@ -40,6 +40,8 @@ object AlarmAudio {
         for (uri in uris) {
             val candidate = try { prepare(context, uri) } catch (error: Exception) { lastError = error; continue }
             try {
+                val offset = startAt?.invoke(candidate.duration)?.coerceIn(0, (candidate.duration - 1).coerceAtLeast(0)) ?: 0
+                if (offset > 0) candidate.seekTo(offset.toLong(), MediaPlayer.SEEK_CLOSEST)
                 candidate.start()
                 return AlarmPlayback(candidate, uri, sound.isNotBlank() && uri.toString() != sound)
             } catch (error: Exception) {

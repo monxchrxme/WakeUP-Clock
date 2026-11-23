@@ -7,6 +7,8 @@ object FollowUpRules {
     /** Infer the waiting interval from the immutable snapshot, including checks saved by older versions. */
     fun earlyCancelAt(session: RingSession): Long? {
         if (session.test || !session.isWakeCheck || session.dueAt <= 0) return null
+        // An automatic pause follows an already ringing check; confirmation is available throughout this pause.
+        if (session.automaticRepeat) return session.dueAt - session.alarm.autoRepeatMinutes * 60_000L
         val minutes = if (session.snoozeCount > 0) session.alarm.snoozeMinutes else session.alarm.wakeCheckMinutes
         if (minutes <= 0) return null
         return session.dueAt - minutes * 30_000L
@@ -22,7 +24,7 @@ object FollowUpRules {
         if (!canSnooze(session)) return null
         val due = now + session.alarm.snoozeMinutes * 60_000L
         return session.copy(token = UUID.randomUUID().toString(), startedAt = due, dueAt = due,
-            snoozeCount = session.snoozeCount + 1, selectedSound = null)
+            snoozeCount = session.snoozeCount + 1, selectedSound = null, ringingSince = 0, automaticRepeat = false)
     }
 
     fun wakeCheck(session: RingSession, now: Long): RingSession? {

@@ -29,6 +29,11 @@ data class Alarm(
     val wakeCheckMinutes: Int = 0,
     val randomSound: Boolean = false,
     val randomSounds: List<SoundChoice> = emptyList(),
+    /** Zero disables the second sound layer. */
+    val irritationMinutes: Int = 0,
+    /** Zero disables automatic pauses. The pause is configured in five-minute increments. */
+    val autoRepeatMinutes: Int = 0,
+    val ringLimitMinutes: Int = 10,
 )
 
 data class RingSession(
@@ -41,6 +46,9 @@ data class RingSession(
     val isWakeCheck: Boolean = false,
     /** Chosen once when this ring starts; recovery must keep the same song. */
     val selectedSound: SoundChoice? = null,
+    /** Actual service activation time; queued and deferred sessions have not begun ringing yet. */
+    val ringingSince: Long = 0,
+    val automaticRepeat: Boolean = false,
 )
 
 object NextAlarm {

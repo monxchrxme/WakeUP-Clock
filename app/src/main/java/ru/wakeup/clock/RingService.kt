@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -21,7 +20,7 @@ class RingService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var store: AlarmStore
     private lateinit var audio: AudioManager
-    private var player: MediaPlayer? = null
+    private lateinit var layers: AlarmSoundLayers
     private var current: RingSession? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var focus: AudioFocusRequest? = null
@@ -32,9 +31,11 @@ class RingService : Service() {
     private val pulse = object : Runnable {
         override fun run() {
             val session = current ?: return
+            val elapsed = SystemClock.elapsedRealtime() - beganElapsed
+            if (!focusPaused && pauseAutomatically(session, elapsed)) return
             if (session.alarm.persistence == Persistence.STRONG ||
                 SystemClock.elapsedRealtime() - beganElapsed <= session.alarm.fadeInSeconds * 1000L) updateVolume(session)
-            if (!focusPaused && player?.isPlaying != true) play(session)
+            if (!focusPaused) play(session)
             if (wakeLock?.isHeld != true) wakeLock?.acquire(10 * 60_000L)
             handler.postDelayed(this, 1000)
         }
@@ -44,12 +45,13 @@ class RingService : Service() {
         super.onCreate()
         store = AlarmStore(this)
         audio = getSystemService(AudioManager::class.java)
+        layers = AlarmSoundLayers(this)
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK, "wakeup:ringing").apply { setReferenceCounted(false) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val session = store.activeSession()?.let(store::resolveSound)
+        val session = store.activeSession()?.let(store::resolveSound)?.let { store.beginRinging(it) }
         if (session == null) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -61,17 +63,19 @@ class RingService : Service() {
 
         if (current?.token != session.token) {
             handler.removeCallbacks(pulse)
-            releasePlayer()
+            layers.release()
             current = session
             focusPaused = false
-            beganElapsed = SystemClock.elapsedRealtime()
+            beganElapsed = SystemClock.elapsedRealtime() - IrritationRules.elapsed(session, System.currentTimeMillis())
+            val elapsed = SystemClock.elapsedRealtime() - beganElapsed
+            if (pauseAutomatically(session, elapsed)) return START_STICKY
             if (store.originalVolume() == null) store.rememberVolume(audio.getStreamVolume(AudioManager.STREAM_ALARM))
             focus?.let { audio.abandonAudioFocusRequest(it) }
             focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(attributes).setOnAudioFocusChangeListener {
                     // Alarms pause for a call; resume when Android returns audio focus.
                     focusPaused = it != AudioManager.AUDIOFOCUS_GAIN
-                    if (!focusPaused) player?.start() else player?.pause()
+                    if (!focusPaused) { layers.resume(); current?.let { play(it) } } else layers.pause()
                 }.build()
             audio.requestAudioFocus(focus!!)
             updateVolume(session)
@@ -88,6 +92,13 @@ class RingService : Service() {
         return START_STICKY
     }
 
+    private fun pauseAutomatically(session: RingSession, elapsed: Long): Boolean {
+        if (!AutoRepeatRules.shouldPause(session, elapsed) || !RingActions.automaticRepeat(this, session, elapsed)) return false
+        current = null
+        layers.release()
+        return true
+    }
+
     private fun updateVolume(session: RingSession) {
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_ALARM)
         val fraction = if (session.alarm.fadeInSeconds > 0)
@@ -98,16 +109,15 @@ class RingService : Service() {
     }
 
     private fun play(session: RingSession) {
-        releasePlayer()
-        runCatching { AlarmAudio.start(this, session.selectedSound?.uri ?: session.alarm.sound) }.onSuccess {
-            player = it.player
-            val changed = store.soundFallback() != it.usedFallback
-            store.setSoundFallback(it.usedFallback)
-            if (changed) sendBroadcast(Intent(STATE_CHANGED).setPackage(packageName))
-        }
+        layers.ensure(session, SystemClock.elapsedRealtime() - beganElapsed)
+        val irritating = layers.irritation != null
+        val fallbackChanged = store.soundFallback() != layers.usedFallback
+        val irritationChanged = store.irritationActive() != irritating
+        val changed = fallbackChanged || irritationChanged
+        if (fallbackChanged) store.setSoundFallback(layers.usedFallback)
+        if (irritationChanged) store.setIrritationActive(irritating)
+        if (changed) sendBroadcast(Intent(STATE_CHANGED).setPackage(packageName))
     }
-
-    private fun releasePlayer() { player?.release(); player = null }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Swiping away the app is not a dismissal. A pending exact alarm also recovers a killed service.
@@ -117,13 +127,15 @@ class RingService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        releasePlayer()
+        current = null
+        layers.release()
         getSystemService(Vibrator::class.java).cancel()
         focus?.let { audio.abandonAudioFocusRequest(it) }
         if (wakeLock?.isHeld == true) wakeLock?.release()
         store.originalVolume()?.let { runCatching { audio.setStreamVolume(AudioManager.STREAM_ALARM, it, 0) } }
         store.forgetVolume()
         store.setSoundFallback(false)
+        store.setIrritationActive(false)
         if (store.activeSession() != null) AlarmScheduler.scheduleRecovery(this)
         super.onDestroy()
     }
