@@ -16,7 +16,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.NumberPicker
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -147,7 +146,7 @@ class AlarmEditorActivity : ComponentActivity() {
         setContentView(root)
 
         val wheels = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
-        fun wheel(max: Int, value: Int, description: String, changed: (Int) -> Unit) = NumberPicker(this).apply {
+        fun wheel(max: Int, value: Int, description: String, changed: (Int) -> Unit) = InertialNumberPicker(this).apply {
             minValue = 0; maxValue = max; wrapSelectorWheel = true
             setFormatter { "%02d".format(it) }; this.value = value
             descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -397,7 +396,7 @@ class AlarmEditorActivity : ComponentActivity() {
     }
 
     private fun chooseMinuteValue(title: String, selected: Int, step: Int, description: String, action: (Int) -> Unit) {
-        val picker = NumberPicker(this).apply {
+        val picker = InertialNumberPicker(this).apply {
             minValue = 1; maxValue = 60 / step; value = (selected / step).coerceIn(1, maxValue)
             if (step == 1) setFormatter { it.toString() }
             else displayedValues = (1..maxValue).map { (it * step).toString() }.toTypedArray()
